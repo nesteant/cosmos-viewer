@@ -17,6 +17,11 @@ $cosmos-theme: mat.m2-define-dark-theme((
 
 @include mat.all-component-themes($cosmos-theme);
 
+// Dense table
+.mat-mdc-table {
+  @include mat.table-density(-4);
+}
+
 // Global styles
 html, body {
   height: 100%;

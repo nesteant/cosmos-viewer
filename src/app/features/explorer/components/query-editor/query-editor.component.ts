@@ -21,7 +21,7 @@ import { QueryStore } from '../../store';
   ],
   template: `
     <div class="query-editor">
-      <div class="editor-toolbar">
+      <div class="editor-toolbar" [class.sidebar-collapsed]="sidebarCollapsed()">
         <span class="container-info">
           <mat-icon>folder</mat-icon>
           {{ container()?.name ?? 'No container selected' }}
@@ -91,6 +91,10 @@ import { QueryStore } from '../../store';
         padding: 8px 12px;
         background: rgba(0, 0, 0, 0.2);
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+        &.sidebar-collapsed {
+          padding-left: 44px;
+        }
       }
 
       .container-info {
@@ -156,6 +160,7 @@ export class QueryEditorComponent implements OnInit {
   readonly queryStore = inject(QueryStore);
 
   container = input<ContainerInfo | null>(null);
+  sidebarCollapsed = input(false);
   execute = output<void>();
 
   query = 'SELECT * FROM c';

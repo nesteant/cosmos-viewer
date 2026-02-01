@@ -264,26 +264,17 @@ import { ImportExportService } from '../import-export/import-export.service';
         width: 100%;
       }
 
-      /* Dense layout for rows */
-      tr.mat-mdc-row {
-        height: 28px;
-      }
-
-      tr.mat-mdc-header-row {
-        height: 32px;
-      }
-
       th.mat-mdc-header-cell {
         background: rgba(0, 0, 0, 0.3);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.85);
-        padding: 2px 6px;
+        padding: 0 6px;
         white-space: nowrap;
       }
 
       td.mat-mdc-cell {
-        padding: 0;
+        padding: 0 6px;
         font-size: 12px;
         max-width: 220px;
         overflow: hidden;
@@ -294,7 +285,6 @@ import { ImportExportService } from '../import-export/import-export.service';
       }
 
       td.mat-mdc-cell .cell-value {
-        padding: 1px 6px;
         display: block;
         overflow: hidden;
         text-overflow: ellipsis;

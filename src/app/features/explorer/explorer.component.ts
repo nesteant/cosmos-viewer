@@ -95,7 +95,7 @@ import { ResultsTableComponent } from './components/results-table/results-table.
               [visible]="!queryPanelCollapsed()"
             >
               <div class="query-panel">
-                <app-query-editor [container]="container" />
+                <app-query-editor [container]="container" [sidebarCollapsed]="sidebarCollapsed()" />
                 <app-collapse-button
                   class="query-collapse-btn"
                   direction="vertical"
@@ -202,9 +202,8 @@ import { ResultsTableComponent } from './components/results-table/results-table.
 
       .collapsed-sidebar-indicator {
         position: absolute;
-        top: 50%;
+        top: 38px;
         left: 4px;
-        transform: translateY(-50%);
         z-index: 100;
         background: rgba(0, 0, 0, 0.4);
         border-radius: 4px;
