@@ -1,6 +1,11 @@
 import { ipcMain } from 'electron';
 import { cosmosService } from './cosmos.service';
-import { getConnections, saveConnections } from './storage.service';
+import {
+  getConnections,
+  saveConnections,
+  getLayoutPreferences,
+  saveLayoutPreferences,
+} from './storage.service';
 
 /**
  * Register all IPC handlers for main process communication
@@ -88,6 +93,25 @@ export function registerIpcHandlers(): void {
       return await cosmosService.deleteDocument(params);
     } catch (error: any) {
       console.error('Failed to delete document:', error);
+      throw error;
+    }
+  });
+
+  // Layout preferences handlers
+  ipcMain.handle('layout:get-preferences', async () => {
+    try {
+      return getLayoutPreferences();
+    } catch (error: any) {
+      console.error('Failed to get layout preferences:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('layout:save-preferences', async (_, prefs) => {
+    try {
+      saveLayoutPreferences(prefs);
+    } catch (error: any) {
+      console.error('Failed to save layout preferences:', error);
       throw error;
     }
   });

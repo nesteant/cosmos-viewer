@@ -54,6 +54,20 @@ export interface ElectronAPI {
     getConnections: () => Promise<any[]>;
     saveConnections: (connections: any[]) => Promise<void>;
   };
+  layout: {
+    getPreferences: () => Promise<{
+      sidebarSize: number;
+      queryPanelSize: number;
+      sidebarCollapsed: boolean;
+      queryPanelCollapsed: boolean;
+    }>;
+    savePreferences: (prefs: {
+      sidebarSize: number;
+      queryPanelSize: number;
+      sidebarCollapsed: boolean;
+      queryPanelCollapsed: boolean;
+    }) => Promise<void>;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -77,6 +91,11 @@ const electronAPI: ElectronAPI = {
     getConnections: () => ipcRenderer.invoke('storage:get-connections'),
     saveConnections: (connections) =>
       ipcRenderer.invoke('storage:save-connections', connections),
+  },
+  layout: {
+    getPreferences: () => ipcRenderer.invoke('layout:get-preferences'),
+    savePreferences: (prefs) =>
+      ipcRenderer.invoke('layout:save-preferences', prefs),
   },
 };
 

@@ -42,15 +42,10 @@ import { ExplorerStore } from '../../store';
     } @else {
       <div class="tree-container">
         @for (db of explorerStore.databases(); track db.id) {
-          <div class="tree-node database">
-            <button
-              mat-icon-button
-              (click)="onToggleNode(db)"
-            >
-              <mat-icon>
-                {{ explorerStore.expandedNodes().has(db.id) ? 'expand_more' : 'chevron_right' }}
-              </mat-icon>
-            </button>
+          <div class="tree-node database" (click)="onToggleNode(db)">
+            <mat-icon class="expand-icon">
+              {{ explorerStore.expandedNodes().has(db.id) ? 'expand_more' : 'chevron_right' }}
+            </mat-icon>
             <mat-icon class="node-icon database-icon">storage</mat-icon>
             <span class="node-name">{{ db.name }}</span>
           </div>
@@ -150,6 +145,16 @@ import { ExplorerStore } from '../../store';
       .node-indent {
         width: 40px;
         flex-shrink: 0;
+      }
+
+      .expand-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+        margin-left: 8px;
+        margin-right: 4px;
+        flex-shrink: 0;
+        color: rgba(255, 255, 255, 0.5);
       }
 
       .node-icon {

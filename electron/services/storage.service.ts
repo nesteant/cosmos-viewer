@@ -10,9 +10,24 @@ interface ConnectionData {
   lastUsedAt?: string;
 }
 
+interface LayoutPreferences {
+  sidebarSize: number;
+  queryPanelSize: number;
+  sidebarCollapsed: boolean;
+  queryPanelCollapsed: boolean;
+}
+
 interface StoreSchema {
   connections: ConnectionData[];
+  layoutPreferences: LayoutPreferences;
 }
+
+const DEFAULT_LAYOUT: LayoutPreferences = {
+  sidebarSize: 20,
+  queryPanelSize: 25,
+  sidebarCollapsed: false,
+  queryPanelCollapsed: false,
+};
 
 const store = new Store<StoreSchema>({
   name: 'cosmos-viewer',
@@ -35,6 +50,16 @@ const store = new Store<StoreSchema>({
         required: ['id', 'name', 'endpoint', 'key', 'createdAt'],
       },
     },
+    layoutPreferences: {
+      type: 'object',
+      default: DEFAULT_LAYOUT,
+      properties: {
+        sidebarSize: { type: 'number' },
+        queryPanelSize: { type: 'number' },
+        sidebarCollapsed: { type: 'boolean' },
+        queryPanelCollapsed: { type: 'boolean' },
+      },
+    },
   },
 });
 
@@ -52,4 +77,12 @@ export function getConnectionById(id: string): ConnectionData | undefined {
 
 export function clearAllData(): void {
   store.clear();
+}
+
+export function getLayoutPreferences(): LayoutPreferences {
+  return store.get('layoutPreferences', DEFAULT_LAYOUT);
+}
+
+export function saveLayoutPreferences(prefs: LayoutPreferences): void {
+  store.set('layoutPreferences', prefs);
 }

@@ -72,6 +72,11 @@ import { QueryStore } from '../../store';
   `,
   styles: [
     `
+      :host {
+        display: block;
+        height: 100%;
+      }
+
       .query-editor {
         display: flex;
         flex-direction: column;

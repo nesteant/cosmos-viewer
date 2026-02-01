@@ -8,9 +8,9 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ContainerInfo, CosmosDocument } from '@core/models';
-import { getDisplayValue, parseEditedValue } from '@core/utils/json-flattener';
+import { parseEditedValue } from '@core/utils/json-flattener';
 import { getValueAtPath, stringToPath, isSystemField } from '@core/utils/path-utils';
-import { ConfirmDialogComponent } from '@shared/components';
+import { ConfirmDialogComponent, CellFormatterComponent } from '@shared/components';
 import { QueryStore } from '../../store';
 import { JsonViewerDialogComponent } from '../json-viewer-dialog/json-viewer-dialog.component';
 import { DocumentDialogComponent } from '../document-dialog/document-dialog.component';
@@ -28,6 +28,7 @@ import { ImportExportService } from '../import-export/import-export.service';
     MatProgressSpinnerModule,
     MatTooltipModule,
     MatDialogModule,
+    CellFormatterComponent,
   ],
   template: `
     <div class="results-container">
@@ -137,7 +138,10 @@ import { ImportExportService } from '../import-export/import-export.service';
                     />
                   } @else {
                     <span class="cell-value">
-                      {{ getCellDisplay(doc, column) }}
+                      <app-cell-formatter
+                        [value]="getCellValue(doc, column)"
+                        [fieldPath]="column"
+                      />
                     </span>
                   }
                 </td>
@@ -393,9 +397,8 @@ export class ResultsTableComponent {
     return isSystemField(path);
   }
 
-  getCellDisplay(doc: CosmosDocument, path: string): string {
-    const value = getValueAtPath(doc, stringToPath(path));
-    return getDisplayValue(value);
+  getCellValue(doc: CosmosDocument, path: string): any {
+    return getValueAtPath(doc, stringToPath(path));
   }
 
   startEditing(doc: CosmosDocument, path: string) {

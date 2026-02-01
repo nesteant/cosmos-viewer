@@ -7,6 +7,7 @@ import {
   DatabaseInfo,
   ContainerInfo,
   CosmosDocument,
+  LayoutPreferences,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -102,5 +103,14 @@ export class ElectronService {
     partitionKey: any;
   }): Promise<void> {
     return this.api.cosmos.deleteDocument(params);
+  }
+
+  // Layout preferences
+  async getLayoutPreferences(): Promise<LayoutPreferences> {
+    return this.api.layout.getPreferences();
+  }
+
+  async saveLayoutPreferences(prefs: LayoutPreferences): Promise<void> {
+    return this.api.layout.savePreferences(prefs);
   }
 }

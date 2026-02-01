@@ -94,3 +94,32 @@ body {
   outline: 2px solid #2196f3;
   outline-offset: 2px;
 }
+
+// Angular Split - Resizable panels
+.as-split-gutter {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background-color: rgba(187, 134, 252, 0.3) !important;
+  }
+
+  &:active {
+    background-color: rgba(187, 134, 252, 0.5) !important;
+  }
+}
+
+// Hide default gutter icon
+.as-split-gutter-icon {
+  background-image: none !important;
+}
+
+// Horizontal gutter (vertical line)
+.as-split-horizontal > .as-split-gutter {
+  cursor: col-resize;
+}
+
+// Vertical gutter (horizontal line)
+.as-split-vertical > .as-split-gutter {
+  cursor: row-resize;
+}

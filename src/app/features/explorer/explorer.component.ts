@@ -1,9 +1,12 @@
-import { Component, inject, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
 import { ContainerInfo } from '@core/models';
+import { LayoutPreferencesService } from '@core/services';
+import { CollapseButtonComponent } from '@shared/components';
 import { ConnectionsStore } from '../connections/store';
 import { ExplorerStore, QueryStore } from './store';
 import { DatabaseTreeComponent } from './components/database-tree/database-tree.component';
@@ -17,38 +20,111 @@ import { ResultsTableComponent } from './components/results-table/results-table.
     MatButtonModule,
     MatIconModule,
     MatTooltipModule,
+    AngularSplitModule,
+    CollapseButtonComponent,
     DatabaseTreeComponent,
     QueryEditorComponent,
     ResultsTableComponent,
   ],
   template: `
-    <div class="explorer-layout">
-      <aside class="explorer-sidebar">
-        <div class="sidebar-header">
-          <button
-            mat-icon-button
-            matTooltip="Back to Connections"
-            (click)="onBackToConnections()"
-          >
-            <mat-icon>arrow_back</mat-icon>
-          </button>
-          <span class="connection-name">
-            {{ connectionsStore.selectedConnection()?.name ?? 'Connection' }}
-          </span>
-        </div>
-        <app-database-tree
-          (containerSelected)="onContainerSelected($event)"
-        />
-      </aside>
+    <as-split
+      direction="horizontal"
+      class="explorer-layout"
+      [gutterSize]="3"
+      (dragEnd)="onHorizontalDragEnd($event)"
+    >
+      <!-- Sidebar -->
+      <as-split-area
+        [size]="sidebarSize()"
+        [minSize]="sidebarCollapsed() ? 0 : 10"
+        [maxSize]="40"
+        [visible]="!sidebarCollapsed()"
+      >
+        <aside class="explorer-sidebar">
+          <div class="sidebar-header">
+            <button
+              mat-icon-button
+              matTooltip="Back to Connections"
+              (click)="onBackToConnections()"
+            >
+              <mat-icon>arrow_back</mat-icon>
+            </button>
+            <span class="connection-name">
+              {{ connectionsStore.selectedConnection()?.name ?? 'Connection' }}
+            </span>
+            <span class="spacer"></span>
+            <app-collapse-button
+              direction="horizontal"
+              label="sidebar"
+              [collapsed]="false"
+              (toggle)="toggleSidebar()"
+            />
+          </div>
+          <app-database-tree
+            (containerSelected)="onContainerSelected($event)"
+          />
+        </aside>
+      </as-split-area>
 
-      <main class="explorer-main">
+      <!-- Main area -->
+      <as-split-area [size]="mainAreaSize()">
+        <!-- Collapsed sidebar indicator -->
+        @if (sidebarCollapsed()) {
+          <div class="collapsed-sidebar-indicator">
+            <app-collapse-button
+              direction="horizontal"
+              label="sidebar"
+              [collapsed]="true"
+              (toggle)="toggleSidebar()"
+            />
+          </div>
+        }
+
         @if (explorerStore.selectedContainer(); as container) {
-          <div class="query-panel">
-            <app-query-editor [container]="container" />
-          </div>
-          <div class="results-panel">
-            <app-results-table [container]="container" />
-          </div>
+          <as-split
+            direction="vertical"
+            class="main-split"
+            [gutterSize]="3"
+            (dragEnd)="onVerticalDragEnd($event)"
+          >
+            <!-- Query panel -->
+            <as-split-area
+              [size]="queryPanelSize()"
+              [minSize]="queryPanelCollapsed() ? 0 : 10"
+              [maxSize]="60"
+              [visible]="!queryPanelCollapsed()"
+            >
+              <div class="query-panel">
+                <app-query-editor [container]="container" />
+                <app-collapse-button
+                  class="query-collapse-btn"
+                  direction="vertical"
+                  label="query editor"
+                  [collapsed]="false"
+                  (toggle)="toggleQueryPanel()"
+                />
+              </div>
+            </as-split-area>
+
+            <!-- Results panel -->
+            <as-split-area [size]="resultsPanelSize()">
+              <!-- Collapsed query panel indicator -->
+              @if (queryPanelCollapsed()) {
+                <div class="collapsed-query-indicator">
+                  <app-collapse-button
+                    direction="vertical"
+                    label="query editor"
+                    [collapsed]="true"
+                    (toggle)="toggleQueryPanel()"
+                  />
+                  <span class="collapsed-label">Query Editor</span>
+                </div>
+              }
+              <div class="results-panel">
+                <app-results-table [container]="container" />
+              </div>
+            </as-split-area>
+          </as-split>
         } @else {
           <div class="no-selection">
             <mat-icon>touch_app</mat-icon>
@@ -56,8 +132,8 @@ import { ResultsTableComponent } from './components/results-table/results-table.
             <p>Choose a database and container from the tree to start querying</p>
           </div>
         }
-      </main>
-    </div>
+      </as-split-area>
+    </as-split>
   `,
   styles: [
     `
@@ -68,16 +144,11 @@ import { ResultsTableComponent } from './components/results-table/results-table.
       }
 
       .explorer-layout {
-        display: flex;
         height: 100%;
-        overflow: hidden;
       }
 
       .explorer-sidebar {
-        width: 260px;
-        min-width: 260px;
-        max-width: 260px;
-        border-right: 1px solid rgba(255, 255, 255, 0.12);
+        height: 100%;
         display: flex;
         flex-direction: column;
         background: rgba(0, 0, 0, 0.1);
@@ -100,25 +171,58 @@ import { ResultsTableComponent } from './components/results-table/results-table.
         white-space: nowrap;
       }
 
-      .explorer-main {
+      .spacer {
         flex: 1;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
+      }
+
+      .main-split {
+        height: 100%;
       }
 
       .query-panel {
-        height: 160px;
-        min-height: 100px;
-        flex-shrink: 0;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+
+      .query-collapse-btn {
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        z-index: 10;
       }
 
       .results-panel {
-        flex: 1 1 0;
-        overflow: hidden;
+        height: 100%;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
+      }
+
+      .collapsed-sidebar-indicator {
+        position: absolute;
+        top: 50%;
+        left: 4px;
+        transform: translateY(-50%);
+        z-index: 100;
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 4px;
+        padding: 2px;
+      }
+
+      .collapsed-query-indicator {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.2);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .collapsed-label {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.5);
       }
 
       .no-selection {
@@ -159,15 +263,48 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   readonly explorerStore = inject(ExplorerStore);
   readonly queryStore = inject(QueryStore);
   private router = inject(Router);
+  private layoutService = inject(LayoutPreferencesService);
 
-  ngOnInit() {
+  // Layout state
+  sidebarSize = signal(20);
+  queryPanelSize = signal(25);
+  sidebarCollapsed = signal(false);
+  queryPanelCollapsed = signal(false);
+
+  // Store previous sizes for restore after collapse
+  private lastSidebarSize = 20;
+  private lastQueryPanelSize = 25;
+
+  // Computed sizes
+  mainAreaSize = computed(() => 100 - this.sidebarSize());
+  resultsPanelSize = computed(() => 100 - this.queryPanelSize());
+
+  async ngOnInit() {
     // Load connections if not already loaded
     if (!this.connectionsStore.hasConnections()) {
       this.connectionsStore.loadConnections();
     }
+
+    // Load layout preferences
+    const prefs = await this.layoutService.loadPreferences();
+    this.sidebarSize.set(prefs.sidebarSize);
+    this.queryPanelSize.set(prefs.queryPanelSize);
+    this.sidebarCollapsed.set(prefs.sidebarCollapsed);
+    this.queryPanelCollapsed.set(prefs.queryPanelCollapsed);
+
+    // Store for restore
+    if (!prefs.sidebarCollapsed) {
+      this.lastSidebarSize = prefs.sidebarSize;
+    }
+    if (!prefs.queryPanelCollapsed) {
+      this.lastQueryPanelSize = prefs.queryPanelSize;
+    }
   }
 
   ngOnDestroy() {
+    // Save layout before leaving
+    this.layoutService.saveImmediately();
+
     // Reset stores when leaving explorer
     this.explorerStore.reset();
     this.queryStore.reset();
@@ -183,5 +320,59 @@ export class ExplorerComponent implements OnInit, OnDestroy {
     // Auto-execute default query when container is selected
     this.queryStore.setQuery('SELECT * FROM c');
     this.queryStore.executeQuery(container);
+  }
+
+  onHorizontalDragEnd(event: SplitGutterInteractionEvent) {
+    const sizes = event.sizes;
+    if (sizes && sizes.length > 0) {
+      const sidebarSize = typeof sizes[0] === 'number' ? sizes[0] : 20;
+      this.sidebarSize.set(sidebarSize);
+      this.lastSidebarSize = sidebarSize;
+      this.layoutService.updatePreferences({ sidebarSize });
+    }
+  }
+
+  onVerticalDragEnd(event: SplitGutterInteractionEvent) {
+    const sizes = event.sizes;
+    if (sizes && sizes.length > 0) {
+      const queryPanelSize = typeof sizes[0] === 'number' ? sizes[0] : 25;
+      this.queryPanelSize.set(queryPanelSize);
+      this.lastQueryPanelSize = queryPanelSize;
+      this.layoutService.updatePreferences({ queryPanelSize });
+    }
+  }
+
+  toggleSidebar() {
+    const collapsed = !this.sidebarCollapsed();
+    this.sidebarCollapsed.set(collapsed);
+
+    if (collapsed) {
+      this.lastSidebarSize = this.sidebarSize();
+      this.sidebarSize.set(0);
+    } else {
+      this.sidebarSize.set(this.lastSidebarSize || 20);
+    }
+
+    this.layoutService.updatePreferences({
+      sidebarCollapsed: collapsed,
+      sidebarSize: this.sidebarSize(),
+    });
+  }
+
+  toggleQueryPanel() {
+    const collapsed = !this.queryPanelCollapsed();
+    this.queryPanelCollapsed.set(collapsed);
+
+    if (collapsed) {
+      this.lastQueryPanelSize = this.queryPanelSize();
+      this.queryPanelSize.set(0);
+    } else {
+      this.queryPanelSize.set(this.lastQueryPanelSize || 25);
+    }
+
+    this.layoutService.updatePreferences({
+      queryPanelCollapsed: collapsed,
+      queryPanelSize: this.queryPanelSize(),
+    });
   }
 }
