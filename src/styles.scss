@@ -88,6 +88,36 @@ body {
   --mdc-dialog-container-color: #2d2d2d;
 }
 
+// Field editor dialog - fixed height
+.field-editor-dialog {
+  .mat-mdc-dialog-surface {
+    display: flex;
+    flex-direction: column;
+    height: 450px;
+    max-height: 80vh;
+  }
+
+  .mat-mdc-dialog-content {
+    flex: 1;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .editor-wrapper {
+    height: 100%;
+  }
+
+  .field-editor {
+    height: 100% !important;
+  }
+
+  .field-editor .editor-container,
+  .field-editor .monaco-editor,
+  .field-editor .overflow-guard {
+    height: 100% !important;
+  }
+}
+
 // Selection styles
 ::selection {
   background-color: #264f78;

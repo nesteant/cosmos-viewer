@@ -14,6 +14,7 @@ import { ConfirmDialogComponent, CellFormatterComponent } from '@shared/componen
 import { QueryStore } from '../../store';
 import { JsonViewerDialogComponent } from '../json-viewer-dialog/json-viewer-dialog.component';
 import { DocumentDialogComponent } from '../document-dialog/document-dialog.component';
+import { FieldEditorDialogComponent } from '../field-editor-dialog/field-editor-dialog.component';
 import { ImportExportService } from '../import-export/import-export.service';
 
 @Component({
@@ -395,6 +396,14 @@ export class ResultsTableComponent {
     if (isSystemField(path)) return;
 
     const value = getValueAtPath(doc, stringToPath(path));
+
+    // For complex types (objects/arrays), open Monaco editor dialog
+    if (value !== null && typeof value === 'object') {
+      this.openFieldEditor(doc, path, value);
+      return;
+    }
+
+    // For simple types, use inline editing
     this.editingCell = { docId: doc.id, path };
     this.editingValue =
       value === null ? 'null' : value === undefined ? '' : String(value);
@@ -403,6 +412,24 @@ export class ResultsTableComponent {
       const input = document.querySelector('.cell-input') as HTMLInputElement;
       input?.focus();
       input?.select();
+    });
+  }
+
+  private openFieldEditor(doc: CosmosDocument, path: string, value: any) {
+    const dialogRef = this.dialog.open(FieldEditorDialogComponent, {
+      data: {
+        fieldPath: path,
+        value: value,
+        documentId: doc.id,
+      },
+      width: '600px',
+      panelClass: 'field-editor-dialog',
+    });
+
+    dialogRef.afterClosed().subscribe((updatedValue) => {
+      if (updatedValue !== undefined) {
+        this.queryStore.updateDocumentField(doc.id, path, updatedValue);
+      }
     });
   }
 
