@@ -12,7 +12,8 @@
   "mac": {
     "category": "public.app-category.developer-tools",
     "target": ["dmg", "zip"],
-    "icon": "public/icon.icns"
+    "icon": "public/icon.icns",
+    "identity": null
   },
   "win": {
     "target": ["nsis", "portable"],
