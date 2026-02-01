@@ -8,6 +8,8 @@ import {
 } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { detectApplicableTypes, getSpecialOptions, isValidGuid, TypeOption, FieldType } from '@core/utils/json-flattener';
 
 export interface FieldEditorDialogData {
   fieldPath: string;
@@ -24,6 +26,7 @@ export interface FieldEditorDialogData {
     MatDialogModule,
     MatButtonModule,
     MatIconModule,
+    MatTooltipModule,
     MonacoEditorModule,
   ],
   template: `
@@ -33,6 +36,39 @@ export interface FieldEditorDialogData {
       <span class="field-path">{{ data.fieldPath }}</span>
     </h2>
     <mat-dialog-content>
+      @if (isTextMode) {
+        <div class="type-bar">
+          <span class="type-label">Save as:</span>
+          @for (opt of applicableTypes; track opt.type) {
+            <button
+              type="button"
+              class="type-chip"
+              [class.selected]="selectedType === opt.type"
+              [style.background]="opt.color"
+              [matTooltip]="opt.description"
+              (click)="selectType(opt.type)"
+            >
+              {{ opt.label }}
+            </button>
+          }
+          @if (isValidGuidValue) {
+            <span class="guid-badge" matTooltip="Valid GUID format">G✓</span>
+          }
+          <span class="chip-divider"></span>
+          @for (opt of specialOptions; track opt.type) {
+            <button
+              type="button"
+              class="type-chip special"
+              [class.selected]="selectedType === opt.type"
+              [style.background]="opt.color"
+              [matTooltip]="opt.description"
+              (click)="selectType(opt.type)"
+            >
+              {{ opt.label }}
+            </button>
+          }
+        </div>
+      }
       <div class="editor-wrapper">
         <ngx-monaco-editor
           class="field-editor"
@@ -101,11 +137,75 @@ export interface FieldEditorDialogData {
         padding: 0 !important;
         overflow: hidden;
         height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .type-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.2);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        flex-shrink: 0;
+      }
+
+      .type-label {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .type-chip {
+        padding: 3px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 4px;
+        border: 2px solid transparent;
+        color: white;
+        cursor: pointer;
+        opacity: 0.5;
+        transition: opacity 0.15s, border-color 0.15s;
+      }
+
+      .type-chip:hover {
+        opacity: 0.8;
+      }
+
+      .type-chip.selected {
+        opacity: 1;
+        border-color: white;
+      }
+
+      .guid-badge {
+        font-size: 11px;
+        color: #9c27b0;
+        font-weight: 600;
+      }
+
+      .chip-divider {
+        width: 1px;
+        height: 20px;
+        background: rgba(255, 255, 255, 0.15);
+        margin: 0 4px;
+      }
+
+      .type-chip.special {
+        opacity: 0.5;
+      }
+
+      .type-chip.special:hover {
+        opacity: 0.8;
+      }
+
+      .type-chip.special.selected {
+        opacity: 1;
       }
 
       .editor-wrapper {
-        height: 100%;
+        flex: 1;
         position: relative;
+        min-height: 0;
       }
 
       .field-editor {
@@ -156,6 +256,12 @@ export class FieldEditorDialogComponent implements OnInit {
   isValidJson = signal(true);
   error = signal<string | null>(null);
 
+  // Type selection for text mode
+  applicableTypes: TypeOption[] = [];
+  specialOptions: TypeOption[] = getSpecialOptions();
+  selectedType: FieldType = 'string';
+  isValidGuidValue = false;
+
   editorOptions: any = {
     theme: 'vs-dark',
     language: 'json',
@@ -180,9 +286,41 @@ export class FieldEditorDialogComponent implements OnInit {
         language: 'plaintext',
         lineNumbers: 'off',
       };
+      this.updateApplicableTypes(false);
     } else {
       this.content = JSON.stringify(this.data.value, null, 2);
     }
+  }
+
+  updateApplicableTypes(preserveSelection = true) {
+    const previousType = this.selectedType;
+    this.applicableTypes = detectApplicableTypes(this.content);
+    this.isValidGuidValue = isValidGuid(this.content);
+
+    // If user had a special type selected (delete/null) but now typed actual content,
+    // automatically switch to the most appropriate value-based type
+    const isSpecialType = previousType === 'delete' || previousType === 'null';
+    const hasContent = this.content.length > 0;
+
+    if (isSpecialType && hasContent) {
+      this.selectedType = this.applicableTypes[0]?.type ?? 'string';
+      return;
+    }
+
+    // Check if previous selection is still valid among value-based types
+    const previousInApplicable = this.applicableTypes.some(opt => opt.type === previousType);
+
+    if (preserveSelection && previousInApplicable) {
+      this.selectedType = previousType;
+    } else if (preserveSelection && (previousType === 'delete' || previousType === 'null')) {
+      this.selectedType = previousType;
+    } else {
+      this.selectedType = this.applicableTypes[0]?.type ?? 'string';
+    }
+  }
+
+  selectType(type: FieldType) {
+    this.selectedType = type;
   }
 
   getIcon(): string {
@@ -191,7 +329,9 @@ export class FieldEditorDialogComponent implements OnInit {
   }
 
   onContentChange() {
-    if (!this.isTextMode) {
+    if (this.isTextMode) {
+      this.updateApplicableTypes(true);
+    } else {
       this.validateJson();
     }
   }
@@ -214,7 +354,16 @@ export class FieldEditorDialogComponent implements OnInit {
 
   onSave() {
     if (this.isTextMode) {
-      this.dialogRef.close(this.content);
+      // Use the selected type option to get the converted value
+      const allOptions = [...this.applicableTypes, ...this.specialOptions];
+      const selectedOption = allOptions.find(
+        (opt) => opt.type === this.selectedType
+      );
+      if (selectedOption) {
+        this.dialogRef.close(selectedOption.value);
+      } else {
+        this.dialogRef.close(this.content);
+      }
       return;
     }
 

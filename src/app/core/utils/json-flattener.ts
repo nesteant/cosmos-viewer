@@ -120,6 +120,111 @@ export function parseEditedValue(value: string, originalValue: any): any {
 }
 
 /**
+ * Type options for inline editing
+ */
+export type FieldType = 'string' | 'number' | 'boolean' | 'null' | 'delete';
+
+export interface TypeOption {
+  type: FieldType;
+  label: string;
+  color: string;
+  value: any;
+  description: string;
+}
+
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Check if a string is a valid GUID format
+ */
+export function isValidGuid(value: string): boolean {
+  return GUID_PATTERN.test(value);
+}
+
+/**
+ * Get special options that are always available (null, delete)
+ */
+export function getSpecialOptions(): TypeOption[] {
+  return [
+    {
+      type: 'null',
+      label: 'N',
+      color: '#78909c',
+      value: null,
+      description: 'Null',
+    },
+    {
+      type: 'delete',
+      label: '⌀',
+      color: '#ff7043',
+      value: undefined,
+      description: 'Delete field',
+    },
+  ];
+}
+
+/**
+ * Detect applicable types for an input string
+ * Returns array of type options based on the value (does not include special options)
+ * The most specific type is first (auto-selected)
+ */
+export function detectApplicableTypes(input: string): TypeOption[] {
+  const types: TypeOption[] = [];
+
+  // String is always an option
+  const stringOption: TypeOption = {
+    type: 'string',
+    label: 'S',
+    color: '#607d8b',
+    value: input,
+    description: 'String',
+  };
+
+  // Check for boolean
+  if (input.toLowerCase() === 'true') {
+    types.push({
+      type: 'boolean',
+      label: 'B',
+      color: '#4caf50',
+      value: true,
+      description: 'Boolean true',
+    });
+    types.push(stringOption);
+    return types;
+  }
+  if (input.toLowerCase() === 'false') {
+    types.push({
+      type: 'boolean',
+      label: 'B',
+      color: '#ef5350',
+      value: false,
+      description: 'Boolean false',
+    });
+    types.push(stringOption);
+    return types;
+  }
+
+  // Check for number (integer or decimal)
+  if (/^-?\d+(\.\d+)?$/.test(input)) {
+    const num = Number(input);
+    if (!isNaN(num) && isFinite(num)) {
+      types.push({
+        type: 'number',
+        label: '#',
+        color: '#42a5f5',
+        value: num,
+        description: 'Number',
+      });
+    }
+  }
+
+  // String is always an option
+  types.push(stringOption);
+
+  return types;
+}
+
+/**
  * Extracts the partition key value from a document
  */
 export function extractPartitionKey(

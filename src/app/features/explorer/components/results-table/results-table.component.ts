@@ -8,7 +8,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ContainerInfo, CosmosDocument } from '@core/models';
-import { parseEditedValue } from '@core/utils/json-flattener';
+import { detectApplicableTypes, getSpecialOptions, isValidGuid, TypeOption, FieldType } from '@core/utils/json-flattener';
 import { getValueAtPath, stringToPath, isSystemField } from '@core/utils/path-utils';
 import { ConfirmDialogComponent, CellFormatterComponent } from '@shared/components';
 import { QueryStore } from '../../store';
@@ -144,14 +144,49 @@ import { ImportExportService } from '../import-export/import-export.service';
                   (dblclick)="startEditing(doc, column)"
                 >
                   @if (editingCell?.docId === doc.id && editingCell?.path === column) {
-                    <input
-                      #editInput
-                      class="cell-input"
-                      [value]="editingValue"
-                      (blur)="finishEditing(doc, column, $event)"
-                      (keydown.enter)="finishEditing(doc, column, $event)"
-                      (keydown.escape)="cancelEditing()"
-                    />
+                    <div class="inline-editor" (mousedown)="$event.stopPropagation()">
+                      <input
+                        #editInput
+                        class="cell-input"
+                        [value]="editingValue"
+                        (input)="onEditInput($event)"
+                        (blur)="onInputBlur(doc, column)"
+                        (keydown.enter)="finishEditing(doc, column)"
+                        (keydown.escape)="cancelEditing()"
+                      />
+                      <div class="type-chips">
+                        @for (opt of applicableTypes; track opt.type) {
+                          <button
+                            type="button"
+                            class="type-chip"
+                            [class.selected]="selectedType === opt.type"
+                            [style.background]="opt.color"
+                            [matTooltip]="opt.description"
+                            matTooltipPosition="above"
+                            (mousedown)="selectType(opt.type, $event)"
+                          >
+                            {{ opt.label }}
+                          </button>
+                        }
+                        @if (isValidGuidValue) {
+                          <span class="guid-badge" matTooltip="Valid GUID format" matTooltipPosition="above">G✓</span>
+                        }
+                        <span class="chip-divider"></span>
+                        @for (opt of specialOptions; track opt.type) {
+                          <button
+                            type="button"
+                            class="type-chip special"
+                            [class.selected]="selectedType === opt.type"
+                            [style.background]="opt.color"
+                            [matTooltip]="opt.description"
+                            matTooltipPosition="above"
+                            (mousedown)="selectType(opt.type, $event)"
+                          >
+                            {{ opt.label }}
+                          </button>
+                        }
+                      </div>
+                    </div>
                   } @else {
                     <span class="cell-value">
                       <app-cell-formatter
@@ -337,6 +372,10 @@ import { ImportExportService } from '../import-export/import-export.service';
         position: relative;
       }
 
+      td.mat-mdc-cell:has(.inline-editor) {
+        overflow: visible;
+      }
+
       td.mat-mdc-cell .cell-value {
         display: block;
         overflow: hidden;
@@ -356,22 +395,121 @@ import { ImportExportService } from '../import-export/import-export.service';
         background: rgba(255, 183, 77, 0.05);
       }
 
-      .cell-input {
+      .inline-editor {
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
+        z-index: 100;
+      }
+
+      .cell-input {
         width: 100%;
         height: 100%;
-        background: #1e1e2e;
+        background: #1a1a2e;
         border: 2px solid #bb86fc;
-        border-radius: 0;
         padding: 0 6px;
         color: white;
         font-size: 12px;
+        font-family: monospace;
         outline: none;
         box-sizing: border-box;
+      }
+
+      .type-chips {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: linear-gradient(135deg, #1e1e2e 0%, #252536 100%);
+        border-radius: 8px;
+        box-shadow:
+          0 4px 16px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(255, 255, 255, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        z-index: 101;
+      }
+
+      .type-chip {
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 6px;
+        border: none;
+        color: white;
+        cursor: pointer;
+        transition: filter 0.15s, box-shadow 0.15s;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      .type-chip:hover {
+        filter: brightness(1.15);
+      }
+
+      .type-chip.selected {
+        box-shadow: 0 0 0 2px white, 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      /* Type-specific colors */
+      .type-chip[title="String"] {
+        background: linear-gradient(135deg, #607d8b 0%, #455a64 100%);
+      }
+
+      .type-chip[title="Boolean true"] {
+        background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+      }
+
+      .type-chip[title="Boolean false"] {
+        background: linear-gradient(135deg, #ef5350 0%, #c62828 100%);
+      }
+
+      .type-chip[title="Number"] {
+        background: linear-gradient(135deg, #42a5f5 0%, #1976d2 100%);
+      }
+
+      .type-chip[title="Null"] {
+        background: linear-gradient(135deg, #78909c 0%, #546e7a 100%);
+      }
+
+      .type-chip[title="Delete field"] {
+        background: linear-gradient(135deg, #ff7043 0%, #e64a19 100%);
+      }
+
+      .type-chip[title="Empty string"] {
+        background: linear-gradient(135deg, #90a4ae 0%, #607d8b 100%);
+      }
+
+      .guid-badge {
+        font-size: 10px;
+        font-weight: 600;
+        color: #ce93d8;
+        background: rgba(156, 39, 176, 0.15);
+        padding: 3px 8px;
+        border-radius: 4px;
+      }
+
+      .chip-divider {
+        width: 1px;
+        height: 20px;
+        background: rgba(255, 255, 255, 0.15);
+        margin: 0 4px;
+      }
+
+      .type-chip.special {
+        opacity: 0.7;
+      }
+
+      .type-chip.special:hover {
+        opacity: 1;
+      }
+
+      .type-chip.special.selected {
+        opacity: 1;
       }
 
       .row-menu-trigger {
@@ -422,6 +560,12 @@ export class ResultsTableComponent {
   editingCell: { docId: string; path: string } | null = null;
   editingValue = '';
   importType: 'json' | 'csv' = 'json';
+
+  // Type selection for inline editing
+  applicableTypes: TypeOption[] = [];
+  specialOptions: TypeOption[] = getSpecialOptions();
+  selectedType: FieldType = 'string';
+  isValidGuidValue = false;
 
   // Column resizing
   private columnWidthsMap = signal<Record<string, number>>({});
@@ -513,11 +657,74 @@ export class ResultsTableComponent {
     this.editingValue =
       value === null ? 'null' : value === undefined ? '' : String(value);
 
+    // Detect applicable types and set initial selection based on original value's type
+    this.updateApplicableTypes(this.editingValue, false);
+    this.selectedType = this.getTypeFromValue(value);
+
     setTimeout(() => {
       const input = document.querySelector('.cell-input') as HTMLInputElement;
       input?.focus();
       input?.select();
     });
+  }
+
+  onEditInput(event: Event) {
+    const input = event.target as HTMLInputElement;
+    this.editingValue = input.value;
+    this.updateApplicableTypes(this.editingValue);
+  }
+
+  updateApplicableTypes(value: string, preserveSelection = true) {
+    const previousType = this.selectedType;
+    this.applicableTypes = detectApplicableTypes(value);
+    this.isValidGuidValue = isValidGuid(value);
+
+    // If user had a special type selected (delete/null) but now typed actual content,
+    // automatically switch to the most appropriate value-based type
+    const isSpecialType = previousType === 'delete' || previousType === 'null';
+    const hasContent = value.length > 0;
+
+    if (isSpecialType && hasContent) {
+      // Switch to value-based type
+      this.selectedType = this.applicableTypes[0]?.type ?? 'string';
+      return;
+    }
+
+    // Check if previous selection is still valid among value-based types
+    const previousInApplicable = this.applicableTypes.some(opt => opt.type === previousType);
+
+    if (preserveSelection && previousInApplicable) {
+      // Keep user's selection if it's a valid value-based type
+      this.selectedType = previousType;
+    } else if (preserveSelection && (previousType === 'delete' || previousType === 'null')) {
+      // Keep special type selection if no content
+      this.selectedType = previousType;
+    } else {
+      // Default to first applicable type (most specific)
+      this.selectedType = this.applicableTypes[0]?.type ?? 'string';
+    }
+  }
+
+  selectType(type: FieldType, event: MouseEvent) {
+    event.preventDefault(); // Prevent blur
+    this.selectedType = type;
+  }
+
+  private getTypeFromValue(value: any): FieldType {
+    if (value === null) return 'null';
+    if (value === undefined) return 'delete';
+    if (typeof value === 'boolean') return 'boolean';
+    if (typeof value === 'number') return 'number';
+    return 'string';
+  }
+
+  onInputBlur(doc: CosmosDocument, column: string) {
+    // Small delay to allow chip clicks to register before blur
+    setTimeout(() => {
+      if (this.editingCell?.docId === doc.id && this.editingCell?.path === column) {
+        this.finishEditing(doc, column);
+      }
+    }, 150);
   }
 
   private openFieldEditor(doc: CosmosDocument, path: string, value: any, mode: 'json' | 'text') {
@@ -539,19 +746,29 @@ export class ResultsTableComponent {
     });
   }
 
-  finishEditing(doc: CosmosDocument, path: string, event: Event) {
-    const input = event.target as HTMLInputElement;
-    const newValueStr = input.value;
+  finishEditing(doc: CosmosDocument, path: string) {
+    // Find the selected type option from both applicable and special options
+    const allOptions = [...this.applicableTypes, ...this.specialOptions];
+    const selectedOption = allOptions.find(
+      (opt) => opt.type === this.selectedType
+    );
 
-    const originalValue = getValueAtPath(doc, stringToPath(path));
-    const newValue = parseEditedValue(newValueStr, originalValue);
+    if (selectedOption) {
+      if (selectedOption.type === 'delete') {
+        // Delete field - set to undefined which should remove it
+        this.queryStore.updateDocumentField(doc.id, path, undefined);
+      } else {
+        this.queryStore.updateDocumentField(doc.id, path, selectedOption.value);
+      }
+    }
 
-    this.queryStore.updateDocumentField(doc.id, path, newValue);
     this.editingCell = null;
+    this.applicableTypes = [];
   }
 
   cancelEditing() {
     this.editingCell = null;
+    this.applicableTypes = [];
   }
 
   onSaveDocument(doc: CosmosDocument) {

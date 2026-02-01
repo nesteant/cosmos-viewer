@@ -47,10 +47,10 @@ import { ArrayPreviewComponent } from './array-preview.component';
         <app-array-preview [value]="value()" />
       }
       @case ('null') {
-        <span class="null-value">null</span>
+        <span class="subtle-value">null</span>
       }
       @case ('undefined') {
-        <span class="undefined-value"></span>
+        <span class="subtle-value">empty</span>
       }
       @default {
         <span class="string-value">{{ stringValue() }}</span>
@@ -63,14 +63,10 @@ import { ArrayPreviewComponent } from './array-preview.component';
         display: inline;
       }
 
-      .null-value {
-        color: rgba(255, 255, 255, 0.4);
+      .subtle-value {
+        font-size: 11px;
         font-style: italic;
-        font-size: 12px;
-      }
-
-      .undefined-value {
-        color: rgba(255, 255, 255, 0.3);
+        color: rgba(255, 255, 255, 0.35);
       }
 
       .string-value {
