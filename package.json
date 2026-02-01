@@ -2,6 +2,10 @@
   "name": "cosmos-viewer",
   "version": "1.0.0",
   "description": "Cosmos DB NoSQL Viewer - Desktop application for managing Azure Cosmos DB",
+  "author": {
+    "name": "Anton Nesterenko",
+    "email": "nesterenko.anton@gmail.com"
+  },
   "main": "dist-electron/main.js",
   "private": true,
   "scripts": {
