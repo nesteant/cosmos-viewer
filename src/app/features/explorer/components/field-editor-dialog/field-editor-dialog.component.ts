@@ -13,6 +13,7 @@ export interface FieldEditorDialogData {
   fieldPath: string;
   value: any;
   documentId: string;
+  mode?: 'json' | 'text';
 }
 
 @Component({
@@ -27,7 +28,7 @@ export interface FieldEditorDialogData {
   ],
   template: `
     <h2 mat-dialog-title>
-      <mat-icon class="field-icon">{{ isArray ? 'data_array' : 'data_object' }}</mat-icon>
+      <mat-icon class="field-icon">{{ getIcon() }}</mat-icon>
       Edit Field
       <span class="field-path">{{ data.fieldPath }}</span>
     </h2>
@@ -36,7 +37,7 @@ export interface FieldEditorDialogData {
         <ngx-monaco-editor
           class="field-editor"
           [options]="editorOptions"
-          [(ngModel)]="jsonContent"
+          [(ngModel)]="content"
           (ngModelChange)="onContentChange()"
         ></ngx-monaco-editor>
       </div>
@@ -52,16 +53,18 @@ export interface FieldEditorDialogData {
         <mat-icon>content_copy</mat-icon>
         Copy
       </button>
-      <button mat-button (click)="onFormat()" [disabled]="!isValidJson()">
-        <mat-icon>auto_fix_high</mat-icon>
-        Format
-      </button>
+      @if (!isTextMode) {
+        <button mat-button (click)="onFormat()" [disabled]="!isValidJson()">
+          <mat-icon>auto_fix_high</mat-icon>
+          Format
+        </button>
+      }
       <button mat-button (click)="dialogRef.close()">Cancel</button>
       <button
         mat-flat-button
         color="primary"
         (click)="onSave()"
-        [disabled]="!isValidJson()"
+        [disabled]="!isTextMode && !isValidJson()"
       >
         Apply
       </button>
@@ -147,12 +150,13 @@ export class FieldEditorDialogComponent implements OnInit {
   readonly dialogRef = inject(MatDialogRef<FieldEditorDialogComponent>);
   readonly data = inject<FieldEditorDialogData>(MAT_DIALOG_DATA);
 
-  jsonContent = '';
+  content = '';
   isArray = false;
+  isTextMode = false;
   isValidJson = signal(true);
   error = signal<string | null>(null);
 
-  editorOptions = {
+  editorOptions: any = {
     theme: 'vs-dark',
     language: 'json',
     minimap: { enabled: false },
@@ -166,22 +170,41 @@ export class FieldEditorDialogComponent implements OnInit {
   };
 
   ngOnInit() {
+    this.isTextMode = this.data.mode === 'text';
     this.isArray = Array.isArray(this.data.value);
-    this.jsonContent = JSON.stringify(this.data.value, null, 2);
+
+    if (this.isTextMode) {
+      this.content = this.data.value ?? '';
+      this.editorOptions = {
+        ...this.editorOptions,
+        language: 'plaintext',
+        lineNumbers: 'off',
+      };
+    } else {
+      this.content = JSON.stringify(this.data.value, null, 2);
+    }
+  }
+
+  getIcon(): string {
+    if (this.isTextMode) return 'text_fields';
+    return this.isArray ? 'data_array' : 'data_object';
   }
 
   onContentChange() {
-    this.validateJson();
+    if (!this.isTextMode) {
+      this.validateJson();
+    }
   }
 
   onCopy() {
-    navigator.clipboard.writeText(this.jsonContent);
+    navigator.clipboard.writeText(this.content);
   }
 
   onFormat() {
+    if (this.isTextMode) return;
     try {
-      const parsed = JSON.parse(this.jsonContent);
-      this.jsonContent = JSON.stringify(parsed, null, 2);
+      const parsed = JSON.parse(this.content);
+      this.content = JSON.stringify(parsed, null, 2);
       this.isValidJson.set(true);
       this.error.set(null);
     } catch (e) {
@@ -190,8 +213,13 @@ export class FieldEditorDialogComponent implements OnInit {
   }
 
   onSave() {
+    if (this.isTextMode) {
+      this.dialogRef.close(this.content);
+      return;
+    }
+
     try {
-      const parsed = JSON.parse(this.jsonContent);
+      const parsed = JSON.parse(this.content);
       this.dialogRef.close(parsed);
     } catch {
       this.isValidJson.set(false);
@@ -201,7 +229,7 @@ export class FieldEditorDialogComponent implements OnInit {
 
   private validateJson() {
     try {
-      JSON.parse(this.jsonContent);
+      JSON.parse(this.content);
       this.isValidJson.set(true);
       this.error.set(null);
     } catch (e) {

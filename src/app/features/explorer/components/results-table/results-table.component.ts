@@ -1,4 +1,4 @@
-import { Component, inject, input, computed, ElementRef, ViewChild } from '@angular/core';
+import { Component, inject, input, computed, ElementRef, ViewChild, signal, HostListener } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -118,14 +118,29 @@ import { ImportExportService } from '../import-export/import-export.service';
           <table mat-table [dataSource]="queryStore.documents()">
             @for (column of displayedColumns(); track column) {
               <ng-container [matColumnDef]="column">
-                <th mat-header-cell *matHeaderCellDef>
-                  {{ getColumnLabel(column) }}
+                <th
+                  mat-header-cell
+                  *matHeaderCellDef
+                  [style.width.px]="columnWidths()[column]"
+                  [style.min-width.px]="columnWidths()[column]"
+                  [style.max-width.px]="columnWidths()[column]"
+                >
+                  <div class="header-content">
+                    <span class="header-label">{{ getColumnLabel(column) }}</span>
+                    <div
+                      class="resize-handle"
+                      (mousedown)="startResize($event, column)"
+                    ></div>
+                  </div>
                 </th>
                 <td
                   mat-cell
                   *matCellDef="let doc"
                   [class.dirty]="queryStore.isFieldDirty(doc.id, column)"
                   [class.editable]="!isSystemField(column)"
+                  [style.width.px]="columnWidths()[column]"
+                  [style.min-width.px]="columnWidths()[column]"
+                  [style.max-width.px]="columnWidths()[column]"
                   (dblclick)="startEditing(doc, column)"
                 >
                   @if (editingCell?.docId === doc.id && editingCell?.path === column) {
@@ -262,22 +277,59 @@ import { ImportExportService } from '../import-export/import-export.service';
       }
 
       table {
-        width: 100%;
+        width: max-content;
+        min-width: 100%;
+        table-layout: fixed;
       }
 
       th.mat-mdc-header-cell {
-        background: rgba(0, 0, 0, 0.3);
+        background: #252525;
         font-size: 12px;
         font-weight: 600;
-        color: rgba(255, 255, 255, 0.85);
-        padding: 0 6px;
+        color: #d9d9d9;
+        padding: 0;
         white-space: nowrap;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .header-content {
+        display: flex;
+        align-items: center;
+        height: 100%;
+        padding: 0 6px;
+      }
+
+      .header-label {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .resize-handle {
+        position: absolute;
+        right: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 3px;
+        cursor: col-resize;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+        z-index: 1;
+        transition: background 0.15s;
+      }
+
+      .resize-handle:hover {
+        background: rgba(187, 134, 252, 0.7);
+      }
+
+      .resize-handle:active {
+        background: #bb86fc;
       }
 
       td.mat-mdc-cell {
         padding: 0 6px;
         font-size: 12px;
-        max-width: 220px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -371,6 +423,23 @@ export class ResultsTableComponent {
   editingValue = '';
   importType: 'json' | 'csv' = 'json';
 
+  // Column resizing
+  private columnWidthsMap = signal<Record<string, number>>({});
+  private resizingColumn: string | null = null;
+  private resizeStartX = 0;
+  private resizeStartWidth = 0;
+  private readonly DEFAULT_COLUMN_WIDTH = 150;
+  private readonly MIN_COLUMN_WIDTH = 60;
+  private readonly MAX_COLUMN_WIDTH = 600;
+
+  columnWidths = computed(() => {
+    const widths: Record<string, number> = {};
+    for (const col of this.displayedColumns()) {
+      widths[col] = this.columnWidthsMap()[col] ?? this.DEFAULT_COLUMN_WIDTH;
+    }
+    return widths;
+  });
+
   displayedColumns = computed(() => {
     return this.queryStore.columns().map((c) => c.path);
   });
@@ -382,6 +451,36 @@ export class ResultsTableComponent {
   getColumnLabel(path: string): string {
     const column = this.queryStore.columns().find((c) => c.path === path);
     return column?.label ?? path;
+  }
+
+  // Column resize methods
+  startResize(event: MouseEvent, column: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    this.resizingColumn = column;
+    this.resizeStartX = event.clientX;
+    this.resizeStartWidth = this.columnWidths()[column];
+  }
+
+  @HostListener('document:mousemove', ['$event'])
+  onMouseMove(event: MouseEvent) {
+    if (!this.resizingColumn) return;
+
+    const delta = event.clientX - this.resizeStartX;
+    const newWidth = Math.min(
+      this.MAX_COLUMN_WIDTH,
+      Math.max(this.MIN_COLUMN_WIDTH, this.resizeStartWidth + delta)
+    );
+
+    this.columnWidthsMap.update((widths) => ({
+      ...widths,
+      [this.resizingColumn!]: newWidth,
+    }));
+  }
+
+  @HostListener('document:mouseup')
+  onMouseUp() {
+    this.resizingColumn = null;
   }
 
   isSystemField(path: string): boolean {
@@ -399,7 +498,13 @@ export class ResultsTableComponent {
 
     // For complex types (objects/arrays), open Monaco editor dialog
     if (value !== null && typeof value === 'object') {
-      this.openFieldEditor(doc, path, value);
+      this.openFieldEditor(doc, path, value, 'json');
+      return;
+    }
+
+    // For long strings (>50 chars), open text editor dialog
+    if (typeof value === 'string' && value.length > 50) {
+      this.openFieldEditor(doc, path, value, 'text');
       return;
     }
 
@@ -415,12 +520,13 @@ export class ResultsTableComponent {
     });
   }
 
-  private openFieldEditor(doc: CosmosDocument, path: string, value: any) {
+  private openFieldEditor(doc: CosmosDocument, path: string, value: any, mode: 'json' | 'text') {
     const dialogRef = this.dialog.open(FieldEditorDialogComponent, {
       data: {
         fieldPath: path,
         value: value,
         documentId: doc.id,
+        mode,
       },
       width: '600px',
       panelClass: 'field-editor-dialog',
