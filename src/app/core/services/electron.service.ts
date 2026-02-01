@@ -1,0 +1,106 @@
+import { Injectable } from '@angular/core';
+import {
+  CosmosConnection,
+  ConnectionTestResult,
+  QueryParams,
+  QueryResult,
+  DatabaseInfo,
+  ContainerInfo,
+  CosmosDocument,
+} from '../models';
+
+@Injectable({ providedIn: 'root' })
+export class ElectronService {
+  private get api() {
+    return window.electronAPI;
+  }
+
+  // Connection operations
+  async testConnection(
+    config: Omit<CosmosConnection, 'id' | 'createdAt'>
+  ): Promise<ConnectionTestResult> {
+    const result = await this.api.cosmos.testConnection({
+      endpoint: config.endpoint,
+      key: config.key,
+    });
+    return {
+      connectionId: '',
+      success: result.success,
+      databaseCount: result.databaseCount,
+      error: result.error,
+    };
+  }
+
+  // Storage operations
+  async getConnections(): Promise<CosmosConnection[]> {
+    const connections = await this.api.storage.getConnections();
+    return connections.map((c: any) => ({
+      ...c,
+      createdAt: new Date(c.createdAt),
+      lastUsedAt: c.lastUsedAt ? new Date(c.lastUsedAt) : undefined,
+    }));
+  }
+
+  async saveConnections(connections: CosmosConnection[]): Promise<void> {
+    const serialized = connections.map((c) => ({
+      ...c,
+      createdAt: c.createdAt.toISOString(),
+      lastUsedAt: c.lastUsedAt?.toISOString(),
+    }));
+    return this.api.storage.saveConnections(serialized);
+  }
+
+  // Database operations
+  async listDatabases(connectionId: string): Promise<DatabaseInfo[]> {
+    return this.api.cosmos.listDatabases(connectionId);
+  }
+
+  async listContainers(
+    connectionId: string,
+    databaseId: string
+  ): Promise<ContainerInfo[]> {
+    const containers = await this.api.cosmos.listContainers(
+      connectionId,
+      databaseId
+    );
+    return containers.map((c) => ({
+      ...c,
+      databaseId,
+    }));
+  }
+
+  // Query operations
+  async executeQuery(params: QueryParams): Promise<QueryResult> {
+    return this.api.cosmos.executeQuery(params);
+  }
+
+  // Document operations
+  async createDocument(params: {
+    connectionId: string;
+    databaseId: string;
+    containerId: string;
+    document: CosmosDocument;
+  }): Promise<CosmosDocument> {
+    return this.api.cosmos.createDocument(params);
+  }
+
+  async updateDocument(params: {
+    connectionId: string;
+    databaseId: string;
+    containerId: string;
+    document: CosmosDocument;
+    partitionKey: any;
+  }): Promise<CosmosDocument> {
+    return this.api.cosmos.updateDocument(params);
+  }
+
+  async deleteDocument(params: {
+    connectionId: string;
+    databaseId: string;
+    containerId: string;
+    documentId: string;
+    partitionKey: any;
+  }): Promise<void> {
+    return this.api.cosmos.deleteDocument(params);
+  }
+}

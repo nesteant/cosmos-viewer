@@ -1,0 +1,49 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Build outputs
+/dist
+/dist-electron
+/out-tsc
+/tmp
+/.angular
+
+# IDE
+/.idea
+/.vscode
+*.swp
+*.swo
+*~
+
+# Electron
+/release
+*.dmg
+*.exe
+*.AppImage
+*.snap
+*.deb
+*.rpm
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+/coverage
+
+# Misc
+*.tgz
+.npm

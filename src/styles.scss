@@ -1,0 +1,96 @@
+@use '@angular/material' as mat;
+
+// Custom dark theme
+$cosmos-primary: mat.m2-define-palette(mat.$m2-indigo-palette);
+$cosmos-accent: mat.m2-define-palette(mat.$m2-cyan-palette);
+$cosmos-warn: mat.m2-define-palette(mat.$m2-red-palette);
+
+$cosmos-theme: mat.m2-define-dark-theme((
+  color: (
+    primary: $cosmos-primary,
+    accent: $cosmos-accent,
+    warn: $cosmos-warn,
+  ),
+  typography: mat.m2-define-typography-config(),
+  density: 0,
+));
+
+@include mat.all-component-themes($cosmos-theme);
+
+// Global styles
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+}
+
+body {
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+}
+
+// Scrollbar styling
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #2d2d2d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+// Snackbar styles
+.snackbar-success {
+  --mdc-snackbar-container-color: #4caf50;
+  --mdc-snackbar-supporting-text-color: white;
+}
+
+.snackbar-error {
+  --mdc-snackbar-container-color: #f44336;
+  --mdc-snackbar-supporting-text-color: white;
+}
+
+.snackbar-info {
+  --mdc-snackbar-container-color: #2196f3;
+  --mdc-snackbar-supporting-text-color: white;
+}
+
+.snackbar-warn {
+  --mdc-snackbar-container-color: #ff9800;
+  --mdc-snackbar-supporting-text-color: white;
+}
+
+// Table styles
+.mat-mdc-table {
+  background-color: transparent !important;
+}
+
+.mat-mdc-row:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+// Dialog styles
+.mat-mdc-dialog-container {
+  --mdc-dialog-container-color: #2d2d2d;
+}
+
+// Selection styles
+::selection {
+  background-color: #264f78;
+  color: white;
+}
+
+// Focus visible for accessibility
+:focus-visible {
+  outline: 2px solid #2196f3;
+  outline-offset: 2px;
+}
