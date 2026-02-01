@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="planetGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#bb86fc"/>
+      <stop offset="50%" style="stop-color:#9c64fb"/>
+      <stop offset="100%" style="stop-color:#7c4dff"/>
+    </linearGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#03dac6;stop-opacity:0.2"/>
+      <stop offset="50%" style="stop-color:#03dac6;stop-opacity:0.8"/>
+      <stop offset="100%" style="stop-color:#03dac6;stop-opacity:0.2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGrad)"/>
+
+  <!-- Outer glow -->
+  <circle cx="256" cy="256" r="240" fill="none" stroke="#bb86fc" stroke-width="4" opacity="0.3"/>
+
+  <!-- Stars -->
+  <circle cx="120" cy="140" r="3" fill="white" opacity="0.8"/>
+  <circle cx="380" cy="120" r="2" fill="white" opacity="0.6"/>
+  <circle cx="400" cy="350" r="3" fill="white" opacity="0.7"/>
+  <circle cx="100" cy="380" r="2" fill="white" opacity="0.5"/>
+  <circle cx="180" cy="420" r="2" fill="white" opacity="0.6"/>
+  <circle cx="340" cy="420" r="3" fill="white" opacity="0.7"/>
+  <circle cx="420" cy="200" r="2" fill="white" opacity="0.5"/>
+  <circle cx="90" cy="250" r="2" fill="white" opacity="0.4"/>
+
+  <!-- Planet (database) -->
+  <circle cx="256" cy="256" r="100" fill="url(#planetGrad)"/>
+
+  <!-- Planet highlight -->
+  <ellipse cx="220" cy="220" rx="40" ry="30" fill="white" opacity="0.15"/>
+
+  <!-- Database lines on planet -->
+  <ellipse cx="256" cy="220" rx="70" ry="15" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+  <ellipse cx="256" cy="256" rx="80" ry="18" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
+  <ellipse cx="256" cy="292" rx="70" ry="15" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+
+  <!-- Orbital ring (front part - behind planet clipped) -->
+  <ellipse cx="256" cy="256" rx="160" ry="45" fill="none" stroke="url(#ringGrad)" stroke-width="8"
+           stroke-dasharray="502" stroke-dashoffset="251"/>
+
+  <!-- Small orbiting dot -->
+  <circle cx="416" cy="256" r="10" fill="#03dac6"/>
+  <circle cx="416" cy="256" r="6" fill="#1de9b6"/>
+
+  <!-- Orbital ring (back part - in front of planet) -->
+  <ellipse cx="256" cy="256" rx="160" ry="45" fill="none" stroke="url(#ringGrad)" stroke-width="8"
+           stroke-dasharray="502" stroke-dashoffset="-251" opacity="0.4"/>
+</svg>
