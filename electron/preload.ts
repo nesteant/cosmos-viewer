@@ -68,6 +68,30 @@ export interface ElectronAPI {
       queryPanelCollapsed: boolean;
     }) => Promise<void>;
   };
+  tabs: {
+    getPreferences: () => Promise<{
+      tabs: Array<{
+        id: string;
+        containerId: string;
+        containerName: string;
+        databaseId: string;
+        partitionKeyPath: string;
+        query: string;
+      }>;
+      activeTabId: string | null;
+    }>;
+    savePreferences: (prefs: {
+      tabs: Array<{
+        id: string;
+        containerId: string;
+        containerName: string;
+        databaseId: string;
+        partitionKeyPath: string;
+        query: string;
+      }>;
+      activeTabId: string | null;
+    }) => Promise<void>;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -96,6 +120,11 @@ const electronAPI: ElectronAPI = {
     getPreferences: () => ipcRenderer.invoke('layout:get-preferences'),
     savePreferences: (prefs) =>
       ipcRenderer.invoke('layout:save-preferences', prefs),
+  },
+  tabs: {
+    getPreferences: () => ipcRenderer.invoke('tabs:get-preferences'),
+    savePreferences: (prefs) =>
+      ipcRenderer.invoke('tabs:save-preferences', prefs),
   },
 };
 

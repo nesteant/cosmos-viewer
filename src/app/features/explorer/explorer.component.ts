@@ -1,17 +1,18 @@
-import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, signal, computed, effect } from '@angular/core';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
-import { ContainerInfo } from '@core/models';
-import { LayoutPreferencesService } from '@core/services';
+import { ContainerInfo, TabState } from '@core/models';
+import { LayoutPreferencesService, TabsPersistenceService } from '@core/services';
 import { CollapseButtonComponent } from '@shared/components';
 import { ConnectionsStore } from '../connections/store';
 import { ExplorerStore, QueryStore } from './store';
 import { DatabaseTreeComponent } from './components/database-tree/database-tree.component';
 import { QueryEditorComponent } from './components/query-editor/query-editor.component';
 import { ResultsTableComponent } from './components/results-table/results-table.component';
+import { TabBarComponent } from './components/tab-bar/tab-bar.component';
 
 @Component({
   selector: 'app-explorer',
@@ -25,6 +26,7 @@ import { ResultsTableComponent } from './components/results-table/results-table.
     DatabaseTreeComponent,
     QueryEditorComponent,
     ResultsTableComponent,
+    TabBarComponent,
   ],
   template: `
     <as-split
@@ -78,6 +80,16 @@ import { ResultsTableComponent } from './components/results-table/results-table.
               (toggle)="toggleSidebar()"
             />
           </div>
+        }
+
+        <!-- Tab bar -->
+        @if (explorerStore.hasTabs()) {
+          <app-tab-bar
+            [tabs]="explorerStore.tabs()"
+            [activeTabId]="explorerStore.activeTabId()"
+            (tabSelected)="onTabSelected($event)"
+            (tabClosed)="onTabClosed($event)"
+          />
         }
 
         @if (explorerStore.selectedContainer(); as container) {
@@ -263,6 +275,7 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   readonly queryStore = inject(QueryStore);
   private router = inject(Router);
   private layoutService = inject(LayoutPreferencesService);
+  private tabsService = inject(TabsPersistenceService);
 
   // Layout state
   sidebarSize = signal(20);
@@ -277,6 +290,14 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   // Computed sizes
   mainAreaSize = computed(() => 100 - this.sidebarSize());
   resultsPanelSize = computed(() => 100 - this.queryPanelSize());
+
+  constructor() {
+    // Effect to sync query store active tab with explorer store
+    effect(() => {
+      const activeTabId = this.explorerStore.activeTabId();
+      this.queryStore.setActiveTab(activeTabId);
+    });
+  }
 
   async ngOnInit() {
     // Load connections if not already loaded
@@ -298,11 +319,28 @@ export class ExplorerComponent implements OnInit, OnDestroy {
     if (!prefs.queryPanelCollapsed) {
       this.lastQueryPanelSize = prefs.queryPanelSize;
     }
+
+    // Load tabs preferences
+    const tabsPrefs = await this.tabsService.loadPreferences();
+    if (tabsPrefs.tabs.length > 0) {
+      this.explorerStore.setTabs(tabsPrefs.tabs, tabsPrefs.activeTabId);
+
+      // Initialize query states for each tab
+      for (const tab of tabsPrefs.tabs) {
+        this.queryStore.initializeTab(tab.id, tab.query);
+      }
+
+      // Set active tab in query store
+      if (tabsPrefs.activeTabId) {
+        this.queryStore.setActiveTab(tabsPrefs.activeTabId);
+      }
+    }
   }
 
   ngOnDestroy() {
-    // Save layout before leaving
+    // Save layout and tabs before leaving
     this.layoutService.saveImmediately();
+    this.tabsService.saveImmediately();
 
     // Reset stores when leaving explorer
     this.explorerStore.reset();
@@ -316,9 +354,47 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   }
 
   onContainerSelected(container: ContainerInfo) {
-    // Auto-execute default query when container is selected
-    this.queryStore.setQuery('SELECT * FROM c');
+    // Open tab for container (or activate existing)
+    const tabId = this.explorerStore.openTab(container);
+
+    // Initialize query store for this tab
+    this.queryStore.initializeTab(tabId, 'SELECT * FROM c');
+    this.queryStore.setActiveTab(tabId);
+
+    // Auto-execute query
     this.queryStore.executeQuery(container);
+
+    // Save tabs
+    this.saveTabsState();
+  }
+
+  onTabSelected(tab: TabState) {
+    // Save current tab's query before switching
+    this.saveTabsState();
+    this.explorerStore.activateTab(tab.id);
+    this.queryStore.setActiveTab(tab.id);
+  }
+
+  onTabClosed(tab: TabState) {
+    this.explorerStore.closeTab(tab.id);
+    this.queryStore.removeTab(tab.id);
+    this.saveTabsState();
+  }
+
+  private saveTabsState() {
+    const tabs = this.explorerStore.tabs();
+    const activeTabId = this.explorerStore.activeTabId();
+
+    // Update tab queries from query store
+    const updatedTabs = tabs.map((tab) => ({
+      ...tab,
+      query: this.queryStore.getTabQuery(tab.id),
+    }));
+
+    this.tabsService.updatePreferences({
+      tabs: updatedTabs,
+      activeTabId,
+    });
   }
 
   onHorizontalDragEnd(event: SplitGutterInteractionEvent) {

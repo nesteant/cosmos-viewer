@@ -17,9 +17,24 @@ interface LayoutPreferences {
   queryPanelCollapsed: boolean;
 }
 
+interface TabState {
+  id: string;
+  containerId: string;
+  containerName: string;
+  databaseId: string;
+  partitionKeyPath: string;
+  query: string;
+}
+
+interface TabsPreferences {
+  tabs: TabState[];
+  activeTabId: string | null;
+}
+
 interface StoreSchema {
   connections: ConnectionData[];
   layoutPreferences: LayoutPreferences;
+  tabsPreferences: TabsPreferences;
 }
 
 const DEFAULT_LAYOUT: LayoutPreferences = {
@@ -27,6 +42,11 @@ const DEFAULT_LAYOUT: LayoutPreferences = {
   queryPanelSize: 25,
   sidebarCollapsed: false,
   queryPanelCollapsed: false,
+};
+
+const DEFAULT_TABS: TabsPreferences = {
+  tabs: [],
+  activeTabId: null,
 };
 
 const store = new Store<StoreSchema>({
@@ -60,6 +80,28 @@ const store = new Store<StoreSchema>({
         queryPanelCollapsed: { type: 'boolean' },
       },
     },
+    tabsPreferences: {
+      type: 'object',
+      default: DEFAULT_TABS,
+      properties: {
+        tabs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              containerId: { type: 'string' },
+              containerName: { type: 'string' },
+              databaseId: { type: 'string' },
+              partitionKeyPath: { type: 'string' },
+              query: { type: 'string' },
+            },
+            required: ['id', 'containerId', 'containerName', 'databaseId', 'query'],
+          },
+        },
+        activeTabId: { type: ['string', 'null'] },
+      },
+    },
   },
 });
 
@@ -85,4 +127,12 @@ export function getLayoutPreferences(): LayoutPreferences {
 
 export function saveLayoutPreferences(prefs: LayoutPreferences): void {
   store.set('layoutPreferences', prefs);
+}
+
+export function getTabsPreferences(): TabsPreferences {
+  return store.get('tabsPreferences', DEFAULT_TABS);
+}
+
+export function saveTabsPreferences(prefs: TabsPreferences): void {
+  store.set('tabsPreferences', prefs);
 }

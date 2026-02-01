@@ -8,6 +8,7 @@ import {
   ContainerInfo,
   CosmosDocument,
   LayoutPreferences,
+  TabsPreferences,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -112,5 +113,14 @@ export class ElectronService {
 
   async saveLayoutPreferences(prefs: LayoutPreferences): Promise<void> {
     return this.api.layout.savePreferences(prefs);
+  }
+
+  // Tabs preferences
+  async getTabsPreferences(): Promise<TabsPreferences> {
+    return this.api.tabs.getPreferences();
+  }
+
+  async saveTabsPreferences(prefs: TabsPreferences): Promise<void> {
+    return this.api.tabs.savePreferences(prefs);
   }
 }

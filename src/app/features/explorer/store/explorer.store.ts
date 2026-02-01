@@ -10,6 +10,7 @@ import {
   DatabaseInfo,
   ContainerInfo,
   TreeNode,
+  TabState,
 } from '@core/models';
 import { ElectronService, NotificationService } from '@core/services';
 
@@ -17,22 +18,23 @@ export interface ExplorerState {
   databases: DatabaseInfo[];
   containers: Map<string, ContainerInfo[]>;
   expandedNodes: Set<string>;
-  selectedDatabase: string | null;
-  selectedContainer: ContainerInfo | null;
   isLoadingDatabases: boolean;
   isLoadingContainers: boolean;
   error: string | null;
+  // Tab state
+  tabs: TabState[];
+  activeTabId: string | null;
 }
 
 const initialState: ExplorerState = {
   databases: [],
   containers: new Map(),
   expandedNodes: new Set(),
-  selectedDatabase: null,
-  selectedContainer: null,
   isLoadingDatabases: false,
   isLoadingContainers: false,
   error: null,
+  tabs: [],
+  activeTabId: null,
 };
 
 export const ExplorerStore = signalStore(
@@ -60,10 +62,48 @@ export const ExplorerStore = signalStore(
         };
       });
     }),
-    hasSelection: computed(() => store.selectedContainer() !== null),
+
+    // Get active tab
+    activeTab: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return null;
+      return store.tabs().find((t) => t.id === tabId) ?? null;
+    }),
+
+    // Get selected container from active tab
+    selectedContainer: computed((): ContainerInfo | null => {
+      const tabId = store.activeTabId();
+      if (!tabId) return null;
+      const tab = store.tabs().find((t) => t.id === tabId);
+      if (!tab) return null;
+
+      // First try to find in containers map for full info
+      const containers = store.containers().get(tab.databaseId);
+      const found = containers?.find((c) => c.id === tab.containerId);
+      if (found) return found;
+
+      // Fallback: create ContainerInfo from tab state
+      return {
+        id: tab.containerId,
+        name: tab.containerName,
+        databaseId: tab.databaseId,
+        partitionKeyPath: tab.partitionKeyPath || '/id',
+      };
+    }),
+
+    hasSelection: computed(() => store.activeTabId() !== null),
+    hasTabs: computed(() => store.tabs().length > 0),
+
     isLoading: computed(
       () => store.isLoadingDatabases() || store.isLoadingContainers()
     ),
+
+    // Check if a container has an open tab
+    getTabForContainer: computed(() => {
+      const tabs = store.tabs();
+      return (containerId: string) =>
+        tabs.find((t) => t.containerId === containerId);
+    }),
   })),
   withMethods((store) => {
     const electronService = inject(ElectronService);
@@ -71,6 +111,10 @@ export const ExplorerStore = signalStore(
 
     const getActiveConnectionId = (): string | null => {
       return sessionStorage.getItem('activeConnectionId');
+    };
+
+    const generateTabId = (): string => {
+      return `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     };
 
     return {
@@ -160,17 +204,89 @@ export const ExplorerStore = signalStore(
         patchState(store, { expandedNodes: expanded });
       },
 
-      selectContainer(container: ContainerInfo) {
+      // Tab management methods
+      openTab(container: ContainerInfo, query = 'SELECT * FROM c'): string {
+        // Check if tab already exists for this container
+        const existingTab = store
+          .tabs()
+          .find((t) => t.containerId === container.id);
+        if (existingTab) {
+          // Activate existing tab
+          patchState(store, { activeTabId: existingTab.id });
+          return existingTab.id;
+        }
+
+        // Create new tab
+        const tabId = generateTabId();
+        const newTab: TabState = {
+          id: tabId,
+          containerId: container.id,
+          containerName: container.name,
+          databaseId: container.databaseId,
+          partitionKeyPath: container.partitionKeyPath,
+          query,
+        };
+
         patchState(store, {
-          selectedDatabase: container.databaseId,
-          selectedContainer: container,
+          tabs: [...store.tabs(), newTab],
+          activeTabId: tabId,
         });
+
+        return tabId;
+      },
+
+      closeTab(tabId: string) {
+        const tabs = store.tabs();
+        const tabIndex = tabs.findIndex((t) => t.id === tabId);
+        if (tabIndex === -1) return;
+
+        const newTabs = tabs.filter((t) => t.id !== tabId);
+
+        // If closing active tab, activate adjacent tab
+        let newActiveTabId = store.activeTabId();
+        if (newActiveTabId === tabId) {
+          if (newTabs.length === 0) {
+            newActiveTabId = null;
+          } else if (tabIndex >= newTabs.length) {
+            newActiveTabId = newTabs[newTabs.length - 1].id;
+          } else {
+            newActiveTabId = newTabs[tabIndex].id;
+          }
+        }
+
+        patchState(store, {
+          tabs: newTabs,
+          activeTabId: newActiveTabId,
+        });
+      },
+
+      activateTab(tabId: string) {
+        const tab = store.tabs().find((t) => t.id === tabId);
+        if (tab) {
+          patchState(store, { activeTabId: tabId });
+        }
+      },
+
+      updateTabQuery(tabId: string, query: string) {
+        const tabs = store.tabs().map((t) =>
+          t.id === tabId ? { ...t, query } : t
+        );
+        patchState(store, { tabs });
+      },
+
+      // Load tabs from persistence
+      setTabs(tabs: TabState[], activeTabId: string | null) {
+        patchState(store, { tabs, activeTabId });
+      },
+
+      // For backwards compatibility
+      selectContainer(container: ContainerInfo) {
+        this.openTab(container);
       },
 
       clearSelection() {
         patchState(store, {
-          selectedDatabase: null,
-          selectedContainer: null,
+          activeTabId: null,
         });
       },
 

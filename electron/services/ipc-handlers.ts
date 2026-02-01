@@ -5,6 +5,8 @@ import {
   saveConnections,
   getLayoutPreferences,
   saveLayoutPreferences,
+  getTabsPreferences,
+  saveTabsPreferences,
 } from './storage.service';
 
 /**
@@ -112,6 +114,25 @@ export function registerIpcHandlers(): void {
       saveLayoutPreferences(prefs);
     } catch (error: any) {
       console.error('Failed to save layout preferences:', error);
+      throw error;
+    }
+  });
+
+  // Tabs preferences handlers
+  ipcMain.handle('tabs:get-preferences', async () => {
+    try {
+      return getTabsPreferences();
+    } catch (error: any) {
+      console.error('Failed to get tabs preferences:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('tabs:save-preferences', async (_, prefs) => {
+    try {
+      saveTabsPreferences(prefs);
+    } catch (error: any) {
+      console.error('Failed to save tabs preferences:', error);
       throw error;
     }
   });

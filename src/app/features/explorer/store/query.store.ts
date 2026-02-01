@@ -8,7 +8,6 @@ import {
 } from '@ngrx/signals';
 import {
   CosmosDocument,
-  QueryResult,
   ColumnDefinition,
   ContainerInfo,
 } from '@core/models';
@@ -16,7 +15,7 @@ import { ElectronService, NotificationService } from '@core/services';
 import { detectColumns } from '@core/utils';
 import { DiffTracker, DocumentChange } from '@core/utils/diff-tracker';
 
-export interface QueryState {
+export interface TabQueryState {
   query: string;
   documents: CosmosDocument[];
   columns: ColumnDefinition[];
@@ -30,8 +29,13 @@ export interface QueryState {
   requestCharge: number | null;
 }
 
-const initialState: QueryState = {
-  query: 'SELECT * FROM c',
+export interface QueryState {
+  tabStates: Record<string, TabQueryState>;
+  activeTabId: string | null;
+}
+
+const createInitialTabState = (query = 'SELECT * FROM c'): TabQueryState => ({
+  query,
   documents: [],
   columns: [],
   continuationToken: null,
@@ -42,40 +46,178 @@ const initialState: QueryState = {
   error: null,
   executionTime: null,
   requestCharge: null,
+});
+
+const initialState: QueryState = {
+  tabStates: {},
+  activeTabId: null,
 };
 
 export const QueryStore = signalStore(
   { providedIn: 'root' },
   withState(initialState),
   withComputed((store) => ({
-    documentCount: computed(() => store.documents().length),
-    hasDocuments: computed(() => store.documents().length > 0),
-    canLoadMore: computed(
-      () => store.hasMoreResults() && !store.isLoadingMore()
-    ),
+    // Get the active tab's state
+    activeTabState: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return null;
+      return store.tabStates()[tabId] ?? null;
+    }),
+
+    // Convenience accessors for active tab
+    query: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return 'SELECT * FROM c';
+      return store.tabStates()[tabId]?.query ?? 'SELECT * FROM c';
+    }),
+    documents: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return [];
+      return store.tabStates()[tabId]?.documents ?? [];
+    }),
+    columns: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return [];
+      return store.tabStates()[tabId]?.columns ?? [];
+    }),
+    isExecuting: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return false;
+      return store.tabStates()[tabId]?.isExecuting ?? false;
+    }),
+    isLoadingMore: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return false;
+      return store.tabStates()[tabId]?.isLoadingMore ?? false;
+    }),
+    hasMoreResults: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return false;
+      return store.tabStates()[tabId]?.hasMoreResults ?? false;
+    }),
+    continuationToken: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return null;
+      return store.tabStates()[tabId]?.continuationToken ?? null;
+    }),
+    error: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return null;
+      return store.tabStates()[tabId]?.error ?? null;
+    }),
+    executionTime: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return null;
+      return store.tabStates()[tabId]?.executionTime ?? null;
+    }),
+    requestCharge: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return null;
+      return store.tabStates()[tabId]?.requestCharge ?? null;
+    }),
+    documentCount: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return 0;
+      return store.tabStates()[tabId]?.documents?.length ?? 0;
+    }),
+    hasDocuments: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return false;
+      return (store.tabStates()[tabId]?.documents?.length ?? 0) > 0;
+    }),
+    canLoadMore: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return false;
+      const state = store.tabStates()[tabId];
+      return state?.hasMoreResults && !state?.isLoadingMore;
+    }),
   })),
   withMethods((store) => {
     const electronService = inject(ElectronService);
     const notificationService = inject(NotificationService);
-    const diffTracker = new DiffTracker();
+
+    // Map of DiffTrackers per tab
+    const diffTrackers = new Map<string, DiffTracker>();
+
+    const getDiffTracker = (tabId: string): DiffTracker => {
+      if (!diffTrackers.has(tabId)) {
+        diffTrackers.set(tabId, new DiffTracker());
+      }
+      return diffTrackers.get(tabId)!;
+    };
 
     const getActiveConnectionId = (): string | null => {
       return sessionStorage.getItem('activeConnectionId');
     };
 
+    const updateTabState = (
+      tabId: string,
+      updates: Partial<TabQueryState>
+    ) => {
+      const current = store.tabStates()[tabId] ?? createInitialTabState();
+      patchState(store, {
+        tabStates: {
+          ...store.tabStates(),
+          [tabId]: { ...current, ...updates },
+        },
+      });
+    };
+
     return {
+      // Tab management
+      initializeTab(tabId: string, query = 'SELECT * FROM c') {
+        if (!store.tabStates()[tabId]) {
+          patchState(store, {
+            tabStates: {
+              ...store.tabStates(),
+              [tabId]: createInitialTabState(query),
+            },
+          });
+        }
+      },
+
+      setActiveTab(tabId: string | null) {
+        patchState(store, { activeTabId: tabId });
+      },
+
+      removeTab(tabId: string) {
+        const { [tabId]: _, ...remaining } = store.tabStates();
+        diffTrackers.delete(tabId);
+        patchState(store, { tabStates: remaining });
+      },
+
+      getTabQuery(tabId: string): string {
+        return store.tabStates()[tabId]?.query ?? 'SELECT * FROM c';
+      },
+
       setQuery(query: string) {
-        patchState(store, { query });
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+        updateTabState(tabId, { query });
+      },
+
+      setTabQuery(tabId: string, query: string) {
+        updateTabState(tabId, { query });
       },
 
       async executeQuery(container: ContainerInfo) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+        await this.executeTabQuery(tabId, container);
+      },
+
+      async executeTabQuery(tabId: string, container: ContainerInfo) {
         const connectionId = getActiveConnectionId();
         if (!connectionId) {
-          patchState(store, { error: 'No active connection' });
+          updateTabState(tabId, { error: 'No active connection' });
           return;
         }
 
-        patchState(store, {
+        const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
+        const query = tabState?.query ?? 'SELECT * FROM c';
+
+        updateTabState(tabId, {
           isExecuting: true,
           error: null,
           documents: [],
@@ -94,17 +236,16 @@ export const QueryStore = signalStore(
             connectionId,
             databaseId: container.databaseId,
             containerId: container.id,
-            query: store.query(),
+            query,
             pageSize: 100,
           });
 
           const executionTime = Math.round(performance.now() - startTime);
           const columns = detectColumns(result.documents);
 
-          // Track all documents for dirty state
           result.documents.forEach((doc) => diffTracker.trackDocument(doc));
 
-          patchState(store, {
+          updateTabState(tabId, {
             documents: result.documents,
             columns,
             continuationToken: result.continuationToken ?? null,
@@ -117,7 +258,7 @@ export const QueryStore = signalStore(
         } catch (error) {
           const message =
             error instanceof Error ? error.message : 'Query execution failed';
-          patchState(store, {
+          updateTabState(tabId, {
             error: message,
             isExecuting: false,
           });
@@ -126,108 +267,143 @@ export const QueryStore = signalStore(
       },
 
       async loadMoreResults(container: ContainerInfo) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
         const connectionId = getActiveConnectionId();
-        const token = store.continuationToken();
+        const tabState = store.tabStates()[tabId];
+        const token = tabState?.continuationToken;
         if (!connectionId || !token) return;
 
-        patchState(store, { isLoadingMore: true });
+        const diffTracker = getDiffTracker(tabId);
+
+        updateTabState(tabId, { isLoadingMore: true });
 
         try {
           const result = await electronService.executeQuery({
             connectionId,
             databaseId: container.databaseId,
             containerId: container.id,
-            query: store.query(),
+            query: tabState.query,
             continuationToken: token,
             pageSize: 100,
           });
 
-          // Track new documents
           result.documents.forEach((doc) => diffTracker.trackDocument(doc));
 
-          const allDocuments = [...store.documents(), ...result.documents];
+          const allDocuments = [...(tabState.documents ?? []), ...result.documents];
           const columns = detectColumns(allDocuments);
 
-          patchState(store, {
+          updateTabState(tabId, {
             documents: allDocuments,
             columns,
             continuationToken: result.continuationToken ?? null,
             hasMoreResults: result.hasMoreResults,
             isLoadingMore: false,
             requestCharge:
-              (store.requestCharge() ?? 0) + (result.requestCharge ?? 0),
+              (tabState.requestCharge ?? 0) + (result.requestCharge ?? 0),
           });
         } catch (error) {
           const message =
             error instanceof Error
               ? error.message
               : 'Failed to load more results';
-          patchState(store, { isLoadingMore: false });
+          updateTabState(tabId, { isLoadingMore: false });
           notificationService.error(message);
         }
       },
 
       updateDocumentField(documentId: string, path: string, value: any) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
+        const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
+
         diffTracker.updateField(documentId, path, value);
 
-        // Update the document in state
-        const documents = store.documents().map((doc) => {
+        const documents = (tabState?.documents ?? []).map((doc) => {
           if (doc.id === documentId) {
             return diffTracker.getModifiedDocument(documentId) ?? doc;
           }
           return doc;
         });
 
-        patchState(store, { documents });
+        updateTabState(tabId, { documents });
       },
 
       isFieldDirty(documentId: string, path: string): boolean {
-        return diffTracker.isFieldDirty(documentId, path);
+        const tabId = store.activeTabId();
+        if (!tabId) return false;
+        return getDiffTracker(tabId).isFieldDirty(documentId, path);
       },
 
       isDocumentDirty(documentId: string): boolean {
-        return diffTracker.isDocumentDirty(documentId);
+        const tabId = store.activeTabId();
+        if (!tabId) return false;
+        return getDiffTracker(tabId).isDocumentDirty(documentId);
       },
 
       getDocumentChanges(documentId: string): DocumentChange[] {
-        return diffTracker.getDocumentChanges(documentId);
+        const tabId = store.activeTabId();
+        if (!tabId) return [];
+        return getDiffTracker(tabId).getDocumentChanges(documentId);
       },
 
       getDirtyDocumentCount(): number {
-        return diffTracker.getDirtyCount();
+        const tabId = store.activeTabId();
+        if (!tabId) return 0;
+        return getDiffTracker(tabId).getDirtyCount();
       },
 
       getAllDirtyDocuments() {
-        return diffTracker.getAllDirtyDocuments();
+        const tabId = store.activeTabId();
+        if (!tabId) return [];
+        return getDiffTracker(tabId).getAllDirtyDocuments();
       },
 
       discardChanges(documentId: string) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
+        const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
+
         diffTracker.discardChanges(documentId);
         const original = diffTracker.getModifiedDocument(documentId);
         if (original) {
-          const documents = store.documents().map((doc) => {
+          const documents = (tabState?.documents ?? []).map((doc) => {
             if (doc.id === documentId) {
               return original;
             }
             return doc;
           });
-          patchState(store, { documents });
+          updateTabState(tabId, { documents });
         }
       },
 
       discardAllChanges() {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
+        const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
+
         diffTracker.discardAllChanges();
-        // Reload original documents
-        const documents = store.documents().map((doc) => {
+        const documents = (tabState?.documents ?? []).map((doc) => {
           return diffTracker.getModifiedDocument(doc.id) ?? doc;
         });
-        patchState(store, { documents });
+        updateTabState(tabId, { documents });
       },
 
       async saveDocument(container: ContainerInfo, documentId: string) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
         const connectionId = getActiveConnectionId();
         if (!connectionId) return;
 
+        const diffTracker = getDiffTracker(tabId);
         const modifiedDoc = diffTracker.getModifiedDocument(documentId);
         if (!modifiedDoc) return;
 
@@ -247,14 +423,15 @@ export const QueryStore = signalStore(
 
           diffTracker.commitChanges(documentId, updated);
 
-          const documents = store.documents().map((doc) => {
+          const tabState = store.tabStates()[tabId];
+          const documents = (tabState?.documents ?? []).map((doc) => {
             if (doc.id === documentId) {
               return updated;
             }
             return doc;
           });
 
-          patchState(store, { documents });
+          updateTabState(tabId, { documents });
           notificationService.success('Document saved successfully');
         } catch (error) {
           const message =
@@ -265,6 +442,10 @@ export const QueryStore = signalStore(
       },
 
       async saveAllChanges(container: ContainerInfo) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
+        const diffTracker = getDiffTracker(tabId);
         const dirtyDocs = diffTracker.getAllDirtyDocuments();
         let savedCount = 0;
         let errorCount = 0;
@@ -288,10 +469,15 @@ export const QueryStore = signalStore(
       },
 
       async deleteDocument(container: ContainerInfo, documentId: string) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
         const connectionId = getActiveConnectionId();
         if (!connectionId) return;
 
-        const doc = store.documents().find((d) => d.id === documentId);
+        const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
+        const doc = tabState?.documents?.find((d) => d.id === documentId);
         if (!doc) return;
 
         try {
@@ -310,10 +496,12 @@ export const QueryStore = signalStore(
 
           diffTracker.untrackDocument(documentId);
 
-          const documents = store.documents().filter((d) => d.id !== documentId);
+          const documents = (tabState?.documents ?? []).filter(
+            (d) => d.id !== documentId
+          );
           const columns = detectColumns(documents);
 
-          patchState(store, { documents, columns });
+          updateTabState(tabId, { documents, columns });
           notificationService.success('Document deleted');
         } catch (error) {
           const message =
@@ -326,8 +514,14 @@ export const QueryStore = signalStore(
       },
 
       async createDocument(container: ContainerInfo, document: CosmosDocument) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
         const connectionId = getActiveConnectionId();
         if (!connectionId) return;
+
+        const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
 
         try {
           const created = await electronService.createDocument({
@@ -339,10 +533,10 @@ export const QueryStore = signalStore(
 
           diffTracker.trackDocument(created);
 
-          const documents = [created, ...store.documents()];
+          const documents = [created, ...(tabState?.documents ?? [])];
           const columns = detectColumns(documents);
 
-          patchState(store, { documents, columns });
+          updateTabState(tabId, { documents, columns });
           notificationService.success('Document created');
           return created;
         } catch (error) {
@@ -356,7 +550,7 @@ export const QueryStore = signalStore(
       },
 
       reset() {
-        diffTracker.clear();
+        diffTrackers.clear();
         patchState(store, initialState);
       },
     };
