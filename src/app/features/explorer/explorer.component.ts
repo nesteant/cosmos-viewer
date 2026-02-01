@@ -5,7 +5,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
 import { ContainerInfo, TabState } from '@core/models';
-import { LayoutPreferencesService, TabsPersistenceService } from '@core/services';
+import { LayoutPreferencesService, NotificationService, TabsPersistenceService } from '@core/services';
 import { CollapseButtonComponent } from '@shared/components';
 import { ConnectionsStore } from '../connections/store';
 import { ExplorerStore, QueryStore } from './store';
@@ -70,80 +70,85 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
 
       <!-- Main area -->
       <as-split-area [size]="mainAreaSize()">
-        <!-- Collapsed sidebar indicator -->
-        @if (sidebarCollapsed()) {
-          <div class="collapsed-sidebar-indicator">
-            <app-collapse-button
-              direction="horizontal"
-              label="sidebar"
-              [collapsed]="true"
-              (toggle)="toggleSidebar()"
+        <div class="main-content">
+          <!-- Collapsed sidebar indicator -->
+          @if (sidebarCollapsed()) {
+            <div class="collapsed-sidebar-indicator">
+              <app-collapse-button
+                direction="horizontal"
+                label="sidebar"
+                [collapsed]="true"
+                (toggle)="toggleSidebar()"
+              />
+            </div>
+          }
+
+          <!-- Tab bar -->
+          @if (explorerStore.hasTabs()) {
+            <app-tab-bar
+              [tabs]="explorerStore.tabs()"
+              [activeTabId]="explorerStore.activeTabId()"
+              (tabSelected)="onTabSelected($event)"
+              (tabClosed)="onTabClosed($event)"
             />
-          </div>
-        }
+          }
 
-        <!-- Tab bar -->
-        @if (explorerStore.hasTabs()) {
-          <app-tab-bar
-            [tabs]="explorerStore.tabs()"
-            [activeTabId]="explorerStore.activeTabId()"
-            (tabSelected)="onTabSelected($event)"
-            (tabClosed)="onTabClosed($event)"
-          />
-        }
+          @if (explorerStore.selectedContainer(); as container) {
+            <div class="split-wrapper">
+              <as-split
+                direction="vertical"
+                [gutterSize]="3"
+                (dragEnd)="onVerticalDragEnd($event)"
+              >
+                <!-- Query panel -->
+                <as-split-area
+                  [size]="queryPanelSize()"
+                  [minSize]="queryPanelCollapsed() ? 0 : 10"
+                  [maxSize]="60"
+                  [visible]="!queryPanelCollapsed()"
+                >
+                  <div class="query-panel">
+                    <app-query-editor [container]="container" [sidebarCollapsed]="sidebarCollapsed()" />
+                    <app-collapse-button
+                      class="query-collapse-btn"
+                      direction="vertical"
+                      label="query editor"
+                      [collapsed]="false"
+                      (toggle)="toggleQueryPanel()"
+                    />
+                  </div>
+                </as-split-area>
 
-        @if (explorerStore.selectedContainer(); as container) {
-          <as-split
-            direction="vertical"
-            class="main-split"
-            [gutterSize]="3"
-            (dragEnd)="onVerticalDragEnd($event)"
-          >
-            <!-- Query panel -->
-            <as-split-area
-              [size]="queryPanelSize()"
-              [minSize]="queryPanelCollapsed() ? 0 : 10"
-              [maxSize]="60"
-              [visible]="!queryPanelCollapsed()"
-            >
-              <div class="query-panel">
-                <app-query-editor [container]="container" [sidebarCollapsed]="sidebarCollapsed()" />
-                <app-collapse-button
-                  class="query-collapse-btn"
-                  direction="vertical"
-                  label="query editor"
-                  [collapsed]="false"
-                  (toggle)="toggleQueryPanel()"
-                />
-              </div>
-            </as-split-area>
-
-            <!-- Results panel -->
-            <as-split-area [size]="resultsPanelSize()">
-              <!-- Collapsed query panel indicator -->
-              @if (queryPanelCollapsed()) {
-                <div class="collapsed-query-indicator">
-                  <app-collapse-button
-                    direction="vertical"
-                    label="query editor"
-                    [collapsed]="true"
-                    (toggle)="toggleQueryPanel()"
-                  />
-                  <span class="collapsed-label">Query Editor</span>
-                </div>
-              }
-              <div class="results-panel">
-                <app-results-table [container]="container" />
-              </div>
-            </as-split-area>
-          </as-split>
-        } @else {
-          <div class="no-selection">
-            <mat-icon>touch_app</mat-icon>
-            <h3>Select a Container</h3>
-            <p>Choose a database and container from the tree to start querying</p>
-          </div>
-        }
+                <!-- Results panel -->
+                <as-split-area [size]="resultsPanelSize()">
+                  <div class="results-wrapper">
+                    <!-- Collapsed query panel indicator -->
+                    @if (queryPanelCollapsed()) {
+                      <div class="collapsed-query-indicator">
+                        <app-collapse-button
+                          direction="vertical"
+                          label="query editor"
+                          [collapsed]="true"
+                          (toggle)="toggleQueryPanel()"
+                        />
+                        <span class="collapsed-label">Query Editor</span>
+                      </div>
+                    }
+                    <div class="results-panel">
+                      <app-results-table [container]="container" />
+                    </div>
+                  </div>
+                </as-split-area>
+              </as-split>
+            </div>
+          } @else {
+            <div class="no-selection">
+              <mat-icon>touch_app</mat-icon>
+              <h3>Select a Container</h3>
+              <p>Choose a database and container from the tree to start querying</p>
+            </div>
+          }
+        </div>
       </as-split-area>
     </as-split>
   `,
@@ -156,6 +161,23 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
       }
 
       .explorer-layout {
+        height: 100%;
+      }
+
+      .main-content {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .split-wrapper {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .split-wrapper as-split {
         height: 100%;
       }
 
@@ -187,15 +209,12 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
         flex: 1;
       }
 
-      .main-split {
-        height: 100%;
-      }
-
       .query-panel {
         height: 100%;
         display: flex;
         flex-direction: column;
         position: relative;
+        overflow: hidden;
       }
 
       .query-collapse-btn {
@@ -205,8 +224,16 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
         z-index: 10;
       }
 
-      .results-panel {
+      .results-wrapper {
         height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .results-panel {
+        flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -276,6 +303,7 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   private router = inject(Router);
   private layoutService = inject(LayoutPreferencesService);
   private tabsService = inject(TabsPersistenceService);
+  private notificationService = inject(NotificationService);
 
   // Layout state
   sidebarSize = signal(20);
@@ -368,9 +396,37 @@ export class ExplorerComponent implements OnInit, OnDestroy {
     this.saveTabsState();
   }
 
-  onTabSelected(tab: TabState) {
+  async onTabSelected(tab: TabState) {
     // Save current tab's query before switching
     this.saveTabsState();
+
+    // Check if we need to switch connections
+    const currentConnectionId = sessionStorage.getItem('activeConnectionId');
+    const tabConnectionId = tab.connectionId;
+
+    // Case 1: No active connection but tab has one stored
+    if (!currentConnectionId && tabConnectionId) {
+      const connection = this.connectionsStore.connections().find(c => c.id === tabConnectionId);
+      if (connection) {
+        this.notificationService.info(`Connecting to: ${connection.name}`);
+        await this.connectionsStore.connectAndNavigate(tabConnectionId);
+        await this.explorerStore.loadDatabases();
+      } else {
+        this.notificationService.warn('Connection no longer exists. Tab may not work correctly.');
+      }
+    }
+    // Case 2: Active connection differs from tab's connection
+    else if (tabConnectionId && tabConnectionId !== currentConnectionId) {
+      const connection = this.connectionsStore.connections().find(c => c.id === tabConnectionId);
+      if (connection) {
+        this.notificationService.info(`Switching to: ${connection.name}`);
+        await this.connectionsStore.connectAndNavigate(tabConnectionId);
+        await this.explorerStore.loadDatabases();
+      } else {
+        this.notificationService.warn('Connection no longer exists. Tab may not work correctly.');
+      }
+    }
+
     this.explorerStore.activateTab(tab.id);
     this.queryStore.setActiveTab(tab.id);
   }

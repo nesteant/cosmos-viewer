@@ -15,6 +15,51 @@ import { ElectronService, NotificationService } from '@core/services';
 import { detectColumns } from '@core/utils';
 import { DiffTracker, DocumentChange } from '@core/utils/diff-tracker';
 
+/**
+ * Parse Cosmos DB error and return user-friendly message
+ */
+function parseCosmosError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  // Check for NotFound errors
+  if (message.includes('"code":"NotFound"') || message.includes('Owner resource does not exist')) {
+    return 'Container or database no longer exists. Please refresh the database tree and try again.';
+  }
+
+  // Check for Unauthorized errors
+  if (message.includes('"code":"Unauthorized"') || message.includes('401')) {
+    return 'Authentication failed. Please check your connection credentials.';
+  }
+
+  // Check for Forbidden errors
+  if (message.includes('"code":"Forbidden"') || message.includes('403')) {
+    return 'Access denied. You may not have permission to access this resource.';
+  }
+
+  // Check for syntax errors
+  if (message.includes('Syntax error')) {
+    const syntaxMatch = message.match(/Syntax error[^"]+/);
+    return syntaxMatch ? syntaxMatch[0] : 'Query syntax error. Please check your query.';
+  }
+
+  // Check for timeout
+  if (message.includes('timeout') || message.includes('RequestTimeout')) {
+    return 'Request timed out. Try reducing the query scope or check your connection.';
+  }
+
+  // Check for connection errors
+  if (message.includes('ECONNREFUSED') || message.includes('ENOTFOUND')) {
+    return 'Connection failed. Please check your network and connection settings.';
+  }
+
+  // Return truncated message if too long
+  if (message.length > 200) {
+    return message.substring(0, 200) + '...';
+  }
+
+  return message || 'Query execution failed';
+}
+
 export interface TabQueryState {
   query: string;
   documents: CosmosDocument[];
@@ -256,8 +301,7 @@ export const QueryStore = signalStore(
             requestCharge: result.requestCharge ?? null,
           });
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : 'Query execution failed';
+          const message = parseCosmosError(error);
           updateTabState(tabId, {
             error: message,
             isExecuting: false,
@@ -304,10 +348,7 @@ export const QueryStore = signalStore(
               (tabState.requestCharge ?? 0) + (result.requestCharge ?? 0),
           });
         } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : 'Failed to load more results';
+          const message = parseCosmosError(error);
           updateTabState(tabId, { isLoadingMore: false });
           notificationService.error(message);
         }

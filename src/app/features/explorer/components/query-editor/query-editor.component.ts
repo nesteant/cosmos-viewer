@@ -1,12 +1,35 @@
-import { Component, inject, input, output, OnInit } from '@angular/core';
+import { Component, inject, input, output, OnInit, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
 import { ContainerInfo } from '@core/models';
-import { QueryStore } from '../../store';
+import { NotificationService } from '@core/services';
+import { registerCosmosSQL } from '@core/utils/cosmossql-monaco';
+import { ConnectionsStore } from '../../../connections/store';
+import { ExplorerStore, QueryStore } from '../../store';
+
+interface QueryTemplate {
+  name: string;
+  icon: string;
+  query: string;
+}
+
+const QUERY_TEMPLATES: QueryTemplate[] = [
+  { name: 'Select All', icon: 'select_all', query: 'SELECT * FROM c' },
+  { name: 'Select Top 10', icon: 'filter_1', query: 'SELECT TOP 10 * FROM c' },
+  { name: 'Select Top 100', icon: 'filter_2', query: 'SELECT TOP 100 * FROM c' },
+  { name: 'Count Documents', icon: 'tag', query: 'SELECT VALUE COUNT(1) FROM c' },
+  { name: 'Select by ID', icon: 'key', query: "SELECT * FROM c WHERE c.id = 'your-id'" },
+  { name: 'Array Contains', icon: 'data_array', query: "SELECT * FROM c WHERE ARRAY_CONTAINS(c.tags, 'value')" },
+  { name: 'String Contains', icon: 'text_fields', query: "SELECT * FROM c WHERE CONTAINS(c.name, 'search')" },
+  { name: 'Date Range', icon: 'date_range', query: "SELECT * FROM c WHERE c._ts >= 1700000000 AND c._ts <= 1800000000" },
+  { name: 'Order By', icon: 'sort', query: 'SELECT * FROM c ORDER BY c._ts DESC' },
+  { name: 'Distinct Values', icon: 'difference', query: 'SELECT DISTINCT VALUE c.type FROM c' },
+];
 
 @Component({
   selector: 'app-query-editor',
@@ -15,6 +38,7 @@ import { QueryStore } from '../../store';
     FormsModule,
     MatButtonModule,
     MatIconModule,
+    MatMenuModule,
     MatProgressSpinnerModule,
     MatTooltipModule,
     MonacoEditorModule,
@@ -28,16 +52,51 @@ import { QueryStore } from '../../store';
         </span>
         <div class="toolbar-actions">
           <button
+            mat-icon-button
+            [matMenuTriggerFor]="templatesMenu"
+            matTooltip="Query Templates"
+          >
+            <mat-icon>library_books</mat-icon>
+          </button>
+          <mat-menu #templatesMenu="matMenu">
+            @for (template of templates; track template.name) {
+              <button mat-menu-item (click)="applyTemplate(template)">
+                <mat-icon>{{ template.icon }}</mat-icon>
+                {{ template.name }}
+              </button>
+            }
+          </mat-menu>
+
+          <button
+            mat-icon-button
+            (click)="formatQuery()"
+            matTooltip="Format Query"
+            [disabled]="!query.trim()"
+          >
+            <mat-icon>auto_fix_high</mat-icon>
+          </button>
+
+          <button
+            mat-icon-button
+            (click)="clearQuery()"
+            matTooltip="Clear"
+            [disabled]="!query.trim()"
+          >
+            <mat-icon>clear</mat-icon>
+          </button>
+
+          <button
             mat-flat-button
             color="primary"
+            class="execute-btn"
             (click)="onExecute()"
-            [disabled]="!container() || queryStore.isExecuting()"
+            [disabled]="!container() || isLoading() || !query.trim()"
+            matTooltip="Execute (Ctrl+Enter)"
           >
-            @if (queryStore.isExecuting()) {
-              <mat-spinner diameter="18"></mat-spinner>
-            } @else {
-              <mat-icon>play_arrow</mat-icon>
-            }
+            <span class="icon-container">
+              <mat-icon [class.hidden]="isLoading()">play_arrow</mat-icon>
+              <mat-spinner [class.hidden]="!isLoading()" diameter="18"></mat-spinner>
+            </span>
             Execute
           </button>
         </div>
@@ -48,10 +107,11 @@ import { QueryStore } from '../../store';
         [options]="editorOptions"
         [(ngModel)]="query"
         (ngModelChange)="queryStore.setQuery($event)"
+        (onInit)="onEditorInit($event)"
       ></ngx-monaco-editor>
 
-      @if (queryStore.executionTime() !== null) {
-        <div class="execution-stats">
+      <div class="status-bar">
+        @if (queryStore.executionTime() !== null) {
           <span class="stat">
             <mat-icon>schedule</mat-icon>
             {{ queryStore.executionTime() }}ms
@@ -64,10 +124,12 @@ import { QueryStore } from '../../store';
           }
           <span class="stat">
             <mat-icon>table_rows</mat-icon>
-            {{ queryStore.documentCount() }} documents
+            {{ queryStore.documentCount() }} docs
           </span>
-        </div>
-      }
+        }
+        <span class="spacer"></span>
+        <span class="hint">Ctrl+Enter to execute</span>
+      </div>
     </div>
   `,
   styles: [
@@ -88,7 +150,7 @@ import { QueryStore } from '../../store';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 12px;
+        padding: 6px 12px;
         background: rgba(0, 0, 0, 0.2);
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 
@@ -114,60 +176,99 @@ import { QueryStore } from '../../store';
 
       .toolbar-actions {
         display: flex;
-        gap: 8px;
-      }
-
-      .toolbar-actions button {
-        display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
       }
 
-      .toolbar-actions mat-spinner {
-        display: inline-block;
+      .execute-btn {
+        margin-left: 8px;
+      }
+
+      .execute-btn .icon-container {
+        display: inline-grid;
+        width: 18px;
+        height: 18px;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+
+      .execute-btn .icon-container > * {
+        grid-area: 1 / 1;
+        width: 18px;
+        height: 18px;
+      }
+
+      .execute-btn .icon-container mat-icon {
+        font-size: 18px;
+        line-height: 18px;
+      }
+
+      .execute-btn .hidden {
+        visibility: hidden;
       }
 
       .editor {
         flex: 1;
-        min-height: 120px;
+        min-height: 0;
+        overflow: hidden;
       }
 
-      .execution-stats {
+      .status-bar {
         display: flex;
         align-items: center;
         gap: 16px;
-        padding: 6px 12px;
-        background: rgba(0, 0, 0, 0.2);
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.6);
+        padding: 4px 12px;
+        background: rgba(0, 0, 0, 0.3);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.5);
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
       }
 
       .stat {
         display: flex;
         align-items: center;
         gap: 4px;
+        color: rgba(255, 255, 255, 0.6);
       }
 
       .stat mat-icon {
-        font-size: 14px;
-        width: 14px;
-        height: 14px;
+        font-size: 13px;
+        width: 13px;
+        height: 13px;
+      }
+
+      .spacer {
+        flex: 1;
+      }
+
+      .hint {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.3);
       }
     `,
   ],
 })
 export class QueryEditorComponent implements OnInit {
   readonly queryStore = inject(QueryStore);
+  private readonly connectionsStore = inject(ConnectionsStore);
+  private readonly explorerStore = inject(ExplorerStore);
+  private readonly notificationService = inject(NotificationService);
 
   container = input<ContainerInfo | null>(null);
   sidebarCollapsed = input(false);
   execute = output<void>();
 
   query = 'SELECT * FROM c';
+  templates = QUERY_TEMPLATES;
+  private editorInstance: any;
+
+  // Loading state for reconnection
+  private isReconnecting = signal(false);
+  isLoading = computed(() => this.isReconnecting() || this.queryStore.isExecuting());
 
   editorOptions = {
     theme: 'vs-dark',
-    language: 'sql',
+    language: 'sql', // Start with sql, switch to cosmossql in onEditorInit
     minimap: { enabled: false },
     automaticLayout: true,
     fontSize: 14,
@@ -175,17 +276,150 @@ export class QueryEditorComponent implements OnInit {
     scrollBeyondLastLine: false,
     wordWrap: 'on' as const,
     padding: { top: 8, bottom: 8 },
+    renderLineHighlight: 'all' as const,
+    bracketPairColorization: { enabled: true },
+    matchBrackets: 'always' as const,
+    suggestOnTriggerCharacters: true,
+    quickSuggestions: true,
+    tabSize: 2,
   };
 
   ngOnInit() {
     this.query = this.queryStore.query();
   }
 
-  onExecute() {
-    const cont = this.container();
-    if (cont) {
-      this.queryStore.executeQuery(cont);
-      this.execute.emit();
+  onEditorInit(editor: any) {
+    this.editorInstance = editor;
+
+    // Register CosmosSQL language if not already registered
+    const monaco = (window as any).monaco;
+    if (monaco && !monaco.languages.getLanguages().some((lang: any) => lang.id === 'cosmossql')) {
+      registerCosmosSQL(monaco);
     }
+
+    // Set the language to cosmossql
+    const model = editor.getModel();
+    if (model) {
+      monaco.editor.setModelLanguage(model, 'cosmossql');
+    }
+
+    // Add Ctrl+Enter / Cmd+Enter keybinding
+    editor.addCommand(
+      // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.Enter
+      2048 | 3, // CtrlCmd = 2048, Enter = 3
+      () => this.onExecute()
+    );
+
+    // Add Ctrl+Shift+F for format
+    editor.addCommand(
+      2048 | 1024 | 36, // CtrlCmd + Shift + KeyF
+      () => this.formatQuery()
+    );
+  }
+
+  async onExecute() {
+    const cont = this.container();
+    if (!cont || !this.query.trim() || this.isLoading()) return;
+
+    // Check if we need to reconnect
+    const currentConnectionId = sessionStorage.getItem('activeConnectionId');
+    const activeTab = this.explorerStore.activeTab();
+    const tabConnectionId = activeTab?.connectionId;
+
+    try {
+      // Case 1: No active connection at all
+      if (!currentConnectionId) {
+        if (tabConnectionId) {
+          // Try to reconnect using tab's stored connection
+          const connection = this.connectionsStore.connections().find(c => c.id === tabConnectionId);
+          if (connection) {
+            this.isReconnecting.set(true);
+            this.notificationService.info(`Reconnecting to: ${connection.name}`);
+            await this.connectionsStore.connectAndNavigate(tabConnectionId);
+            await this.explorerStore.loadDatabases();
+          } else {
+            this.notificationService.error('Connection no longer exists. Please go back and select a connection.');
+            return;
+          }
+        } else {
+          this.notificationService.error('No active connection. Please go back and select a connection.');
+          return;
+        }
+      }
+      // Case 2: Active connection differs from tab's connection
+      else if (tabConnectionId && tabConnectionId !== currentConnectionId) {
+        const connection = this.connectionsStore.connections().find(c => c.id === tabConnectionId);
+        if (connection) {
+          this.isReconnecting.set(true);
+          this.notificationService.info(`Switching to: ${connection.name}`);
+          await this.connectionsStore.connectAndNavigate(tabConnectionId);
+          await this.explorerStore.loadDatabases();
+        } else {
+          this.notificationService.error('Connection no longer exists. Please close this tab and reconnect.');
+          return;
+        }
+      }
+    } finally {
+      this.isReconnecting.set(false);
+    }
+
+    this.queryStore.executeQuery(cont);
+    this.execute.emit();
+  }
+
+  applyTemplate(template: QueryTemplate) {
+    this.query = template.query;
+    this.queryStore.setQuery(template.query);
+    // Focus the editor
+    this.editorInstance?.focus();
+  }
+
+  formatQuery() {
+    if (!this.query.trim()) return;
+    this.query = this.formatSQL(this.query);
+    this.queryStore.setQuery(this.query);
+  }
+
+  clearQuery() {
+    this.query = '';
+    this.queryStore.setQuery('');
+    this.editorInstance?.focus();
+  }
+
+  private formatSQL(sql: string): string {
+    // Simple SQL formatter
+    const keywords = [
+      'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY',
+      'HAVING', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
+      'OFFSET', 'LIMIT', 'TOP', 'DISTINCT', 'VALUE', 'AS',
+    ];
+
+    let formatted = sql.trim();
+
+    // Normalize whitespace
+    formatted = formatted.replace(/\s+/g, ' ');
+
+    // Add newlines before major keywords
+    const majorKeywords = ['SELECT', 'FROM', 'WHERE', 'ORDER BY', 'GROUP BY', 'HAVING', 'OFFSET', 'LIMIT'];
+    for (const kw of majorKeywords) {
+      const regex = new RegExp(`\\b(${kw})\\b`, 'gi');
+      formatted = formatted.replace(regex, '\n$1');
+    }
+
+    // Add newlines before AND/OR (with indentation)
+    formatted = formatted.replace(/\b(AND|OR)\b/gi, '\n  $1');
+
+    // Trim leading newline and extra spaces
+    formatted = formatted.trim();
+    formatted = formatted.replace(/\n +/g, '\n  ');
+    formatted = formatted.replace(/^\n/, '');
+
+    // Uppercase keywords
+    for (const kw of keywords) {
+      const regex = new RegExp(`\\b${kw}\\b`, 'gi');
+      formatted = formatted.replace(regex, kw);
+    }
+
+    return formatted;
   }
 }

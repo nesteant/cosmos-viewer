@@ -117,7 +117,12 @@ export class ElectronService {
 
   // Tabs preferences
   async getTabsPreferences(): Promise<TabsPreferences> {
-    return this.api.tabs.getPreferences();
+    const prefs = await this.api.tabs.getPreferences();
+    // Filter out old tabs without connectionId (dev mode - no backward compat needed)
+    const validTabs = (prefs.tabs as Array<Record<string, unknown>>).filter(
+      (tab) => tab['connectionId']
+    ) as unknown as TabsPreferences['tabs'];
+    return { ...prefs, tabs: validTabs };
   }
 
   async saveTabsPreferences(prefs: TabsPreferences): Promise<void> {

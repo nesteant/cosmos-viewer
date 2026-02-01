@@ -206,10 +206,12 @@ export const ExplorerStore = signalStore(
 
       // Tab management methods
       openTab(container: ContainerInfo, query = 'SELECT * FROM c'): string {
-        // Check if tab already exists for this container
+        const connectionId = sessionStorage.getItem('activeConnectionId') ?? '';
+
+        // Check if tab already exists for this container on this connection
         const existingTab = store
           .tabs()
-          .find((t) => t.containerId === container.id);
+          .find((t) => t.containerId === container.id && t.connectionId === connectionId);
         if (existingTab) {
           // Activate existing tab
           patchState(store, { activeTabId: existingTab.id });
@@ -220,6 +222,7 @@ export const ExplorerStore = signalStore(
         const tabId = generateTabId();
         const newTab: TabState = {
           id: tabId,
+          connectionId,
           containerId: container.id,
           containerName: container.name,
           databaseId: container.databaseId,

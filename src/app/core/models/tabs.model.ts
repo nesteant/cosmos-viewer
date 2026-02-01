@@ -1,5 +1,6 @@
 export interface TabState {
   id: string;
+  connectionId: string;
   containerId: string;
   containerName: string;
   databaseId: string;
