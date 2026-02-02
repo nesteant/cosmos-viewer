@@ -3,15 +3,158 @@
  * Provides syntax highlighting and autocomplete for Cosmos DB SQL queries
  */
 
-// Store for dynamic field suggestions
-let documentFields: string[] = [];
+// Store for dynamic field suggestions - now a nested schema tree
+interface SchemaNode {
+  [key: string]: SchemaNode | null; // null means leaf (primitive), object means has children
+}
+let schemaTree: SchemaNode = {};
 let completionDisposable: any = null;
 
 /**
- * Update document fields for autocomplete suggestions
+ * Update document fields for autocomplete suggestions (legacy - flat list)
  */
 export function updateDocumentFields(fields: string[]): void {
-  documentFields = fields;
+  // Convert flat fields to simple schema tree for backwards compatibility
+  schemaTree = {};
+  for (const field of fields) {
+    schemaTree[field] = null;
+  }
+}
+
+/**
+ * Build schema tree from documents with smart sampling:
+ * 1. Take first 50 docs to collect all root-level keys
+ * 2. For each root key, merge structure from up to 10 docs that have it
+ */
+export function updateSchemaFromDocuments(documents: any[]): void {
+  if (!documents || documents.length === 0) {
+    schemaTree = {};
+    return;
+  }
+
+  // Step 1: Sample first 50 docs (or all if less)
+  const sampleSize = Math.min(50, documents.length);
+  const sampledDocs = documents.slice(0, sampleSize);
+
+  // Step 2: Collect all root-level keys and group docs by which keys they have
+  const docsPerRootKey = new Map<string, any[]>();
+
+  for (const doc of sampledDocs) {
+    if (!doc || typeof doc !== 'object') continue;
+
+    for (const key of Object.keys(doc)) {
+      if (!docsPerRootKey.has(key)) {
+        docsPerRootKey.set(key, []);
+      }
+      const docs = docsPerRootKey.get(key)!;
+      if (docs.length < 10) { // Keep up to 10 docs per root key
+        docs.push(doc);
+      }
+    }
+  }
+
+  // Step 3: Build merged schema tree
+  schemaTree = {};
+
+  for (const [rootKey, docs] of docsPerRootKey) {
+    // Skip system fields
+    if (rootKey.startsWith('_')) continue;
+
+    // Merge schema from all sampled docs for this root key
+    let mergedSchema: SchemaNode | null = null;
+
+    for (const doc of docs) {
+      const value = doc[rootKey];
+      const nodeSchema = buildSchemaNode(value, 5); // Max depth 5
+      mergedSchema = mergeSchemaNodes(mergedSchema, nodeSchema);
+    }
+
+    schemaTree[rootKey] = mergedSchema;
+  }
+}
+
+/**
+ * Build schema node from a value (recursive)
+ */
+function buildSchemaNode(value: any, maxDepth: number): SchemaNode | null {
+  if (maxDepth <= 0) return null;
+  if (value === null || value === undefined) return null;
+
+  if (Array.isArray(value)) {
+    // For arrays, analyze first few items to get item schema
+    if (value.length === 0) return null;
+
+    let itemSchema: SchemaNode | null = null;
+    const itemsToCheck = Math.min(3, value.length);
+
+    for (let i = 0; i < itemsToCheck; i++) {
+      const item = value[i];
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        const nodeSchema = buildSchemaNode(item, maxDepth - 1);
+        itemSchema = mergeSchemaNodes(itemSchema, nodeSchema);
+      }
+    }
+
+    // Return schema with [n] notation for array access
+    if (itemSchema) {
+      return { '[n]': itemSchema };
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const node: SchemaNode = {};
+    for (const key of Object.keys(value)) {
+      const childValue = value[key];
+      node[key] = buildSchemaNode(childValue, maxDepth - 1);
+    }
+    return Object.keys(node).length > 0 ? node : null;
+  }
+
+  // Primitive value - leaf node
+  return null;
+}
+
+/**
+ * Merge two schema nodes (union of all keys)
+ */
+function mergeSchemaNodes(a: SchemaNode | null, b: SchemaNode | null): SchemaNode | null {
+  if (!a) return b;
+  if (!b) return a;
+
+  const merged: SchemaNode = { ...a };
+
+  for (const key of Object.keys(b)) {
+    if (key in merged) {
+      merged[key] = mergeSchemaNodes(merged[key], b[key]);
+    } else {
+      merged[key] = b[key];
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Get suggestions for a given path (e.g., "memberTags.systemValue")
+ */
+function getSuggestionsForPath(path: string[]): string[] {
+  let current: SchemaNode | null = schemaTree;
+
+  for (const segment of path) {
+    if (!current) return [];
+
+    // Handle array access - skip [n] or [0] etc
+    if (segment.match(/^\[\d*n?\]$/)) {
+      current = current['[n]'] ?? null;
+      continue;
+    }
+
+    current = current[segment] ?? null;
+  }
+
+  if (!current) return [];
+  return Object.keys(current);
 }
 
 // CosmosSQL keywords (uppercase for syntax highlighting)
@@ -238,30 +381,60 @@ export function registerCosmosSQL(monaco: any): void {
         endColumn: word.endColumn,
       };
 
-      // Check if we're after "c." to provide field suggestions
+      // Check if we're after "c." or deeper path to provide field suggestions
       const lineContent = model.getLineContent(position.lineNumber);
       const textBeforeCursor = lineContent.substring(0, position.column - 1);
-      const afterDot = /c\.\s*$/.test(textBeforeCursor) || /c\.[a-zA-Z_]*$/.test(textBeforeCursor);
+
+      // Match patterns like: c. | c.field. | c.field.nested. | c.field[0]. | c.field[n].
+      const pathMatch = textBeforeCursor.match(/c\.([a-zA-Z_][\w]*(?:(?:\[\d*n?\])?\.[\w]*)*)?\.?$/);
+      const isAfterPath = pathMatch !== null;
 
       const suggestions: any[] = [];
 
-      // If after "c.", prioritize field suggestions
-      if (afterDot && documentFields.length > 0) {
-        documentFields.forEach((field, index) => {
+      if (isAfterPath) {
+        // Extract the path segments
+        const fullPath = pathMatch[1] || '';
+        const pathSegments = fullPath
+          ? fullPath.split(/\./).filter((s: string) => s.length > 0).map((s: string) => {
+              // Handle array notation within segment: field[0] -> field, [0]
+              const arrayMatch = s.match(/^([a-zA-Z_]\w*)(\[\d*n?\])$/);
+              if (arrayMatch) {
+                return [arrayMatch[1], arrayMatch[2]];
+              }
+              return [s];
+            }).flat()
+          : [];
+
+        // Check if we're completing after a dot (need suggestions for next level)
+        const endsWithDot = textBeforeCursor.endsWith('.');
+
+        let targetPath: string[];
+        if (endsWithDot) {
+          // Suggest children of the current path
+          targetPath = pathSegments;
+        } else {
+          // Suggest siblings (complete current segment)
+          targetPath = pathSegments.slice(0, -1);
+        }
+
+        const fieldSuggestions = getSuggestionsForPath(targetPath);
+
+        fieldSuggestions.forEach((field, index) => {
+          const isArray = field === '[n]';
           suggestions.push({
-            label: field,
+            label: isArray ? '[0]' : field,
             kind: monaco.languages.CompletionItemKind.Field,
-            insertText: field,
-            detail: 'Document field',
-            sortText: String(index).padStart(3, '0'), // Keep field order
+            insertText: isArray ? '[0]' : field,
+            detail: isArray ? 'Array index' : 'Document field',
+            sortText: String(index).padStart(3, '0'),
             range,
           });
         });
       }
 
-      // Add field suggestions with c. prefix for general context
-      if (!afterDot && documentFields.length > 0) {
-        documentFields.forEach((field, index) => {
+      // Add root-level field suggestions with c. prefix for general context
+      if (!isAfterPath && Object.keys(schemaTree).length > 0) {
+        Object.keys(schemaTree).forEach((field, index) => {
           suggestions.push({
             label: `c.${field}`,
             kind: monaco.languages.CompletionItemKind.Field,

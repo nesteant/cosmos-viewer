@@ -8,7 +8,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
 import { ContainerInfo } from '@core/models';
 import { NotificationService } from '@core/services';
-import { registerCosmosSQL, updateDocumentFields } from '@core/utils/cosmossql-monaco';
+import { registerCosmosSQL, updateSchemaFromDocuments } from '@core/utils/cosmossql-monaco';
 import { ConnectionsStore } from '../../../connections/store';
 import { ExplorerStore, QueryStore } from '../../store';
 
@@ -282,13 +282,10 @@ export class QueryEditorComponent implements OnInit {
       }
     });
 
-    // Update Monaco autocomplete when columns change
+    // Update Monaco autocomplete when documents change
     effect(() => {
-      const columns = this.queryStore.columns();
-      const fields = columns
-        .map(col => col.path)
-        .filter(path => !path.startsWith('_')); // Exclude system fields from suggestions
-      updateDocumentFields(fields);
+      const documents = this.queryStore.documents();
+      updateSchemaFromDocuments(documents);
     });
   }
 

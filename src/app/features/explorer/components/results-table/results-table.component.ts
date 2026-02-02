@@ -372,7 +372,8 @@ import { ImportExportService } from '../import-export/import-export.service';
         position: relative;
       }
 
-      td.mat-mdc-cell:has(.inline-editor) {
+      td.mat-mdc-cell:has(.inline-editor),
+      td.mat-mdc-cell:has(.expanded-content) {
         overflow: visible;
       }
 
