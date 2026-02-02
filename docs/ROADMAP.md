@@ -14,6 +14,13 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 - ✅ **Import/Export** - JSON and CSV formats
 - ✅ **Inline Editing** - Cell editing with type selection (string, number, boolean, null, delete)
 - ✅ **Monaco Editor** - For complex fields (objects, arrays, long text)
+- ✅ **Query Autocomplete** - Field names from schema inference (nested paths), CosmosSQL keywords, functions, lowercase literals
+- ✅ **Table Navigation** - Arrow keys to move between cells, Enter to edit, Escape to cancel/clear focus
+- ✅ **Right-click Context Menu** - Row actions (Save, Discard, View JSON, Duplicate, Delete)
+- ✅ **Row Numbering** - Sticky row numbers column
+- ✅ **Query Persistence** - Queries saved per tab across refreshes/restarts
+- ✅ **SQL Formatter** - Format query with comment preservation
+- ✅ **JetBrains Mono Font** - Local font (no CDN dependency)
 
 ---
 
@@ -46,13 +53,7 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 - Quick access from sidebar or command palette
 - Share/export queries
 
-### 2.3 Query Autocomplete
-- Table/container names
-- Field names from schema inference
-- CosmosSQL keywords and functions
-- Snippets (SELECT template, WHERE clauses)
-
-### 2.4 Query Execution Plan
+### 2.3 Query Execution Plan
 - Visual representation of query plan
 - Index usage indicators
 - Optimization suggestions
@@ -78,11 +79,6 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 - Recent containers
 - Recent queries
 - Settings access
-
-### 3.3 Table Navigation
-- Arrow keys to move between cells
-- Enter to edit, Escape to cancel
-- Tab to move to next cell
 
 ---
 
