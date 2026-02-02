@@ -11,6 +11,7 @@ import {
   TabsPreferences,
   AnalyzeQueryParams,
   AnalyzeQueryResult,
+  TablePreferencesStorage,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -133,5 +134,14 @@ export class ElectronService {
 
   async saveTabsPreferences(prefs: TabsPreferences): Promise<void> {
     return this.api.tabs.savePreferences(prefs);
+  }
+
+  // Table preferences
+  async getTablePreferences(): Promise<TablePreferencesStorage> {
+    return this.api.table.getPreferences();
+  }
+
+  async saveTablePreferences(prefs: TablePreferencesStorage): Promise<void> {
+    return this.api.table.savePreferences(prefs);
   }
 }

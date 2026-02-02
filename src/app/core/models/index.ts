@@ -5,3 +5,4 @@ export * from './query-analyzer.model';
 export * from './tree-node.model';
 export * from './layout.model';
 export * from './tabs.model';
+export * from './column-preferences.model';

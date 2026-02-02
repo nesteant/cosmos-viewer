@@ -103,6 +103,24 @@ export interface ElectronAPI {
       activeTabId: string | null;
     }) => Promise<void>;
   };
+  table: {
+    getPreferences: () => Promise<{
+      containers: Record<string, { columns: Array<{ path: string; visible: boolean; width: number; order: number; pinned: boolean }> }>;
+      tabs: Record<string, {
+        columns: Array<{ path: string; visible: boolean; width: number; order: number; pinned: boolean }>;
+        sort: { column: string | null; direction: 'asc' | 'desc' | null };
+        filter: { globalSearch: string; columnFilters: Record<string, string> };
+      }>;
+    }>;
+    savePreferences: (prefs: {
+      containers: Record<string, { columns: Array<{ path: string; visible: boolean; width: number; order: number; pinned: boolean }> }>;
+      tabs: Record<string, {
+        columns: Array<{ path: string; visible: boolean; width: number; order: number; pinned: boolean }>;
+        sort: { column: string | null; direction: 'asc' | 'desc' | null };
+        filter: { globalSearch: string; columnFilters: Record<string, string> };
+      }>;
+    }) => Promise<void>;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -138,6 +156,11 @@ const electronAPI: ElectronAPI = {
     getPreferences: () => ipcRenderer.invoke('tabs:get-preferences'),
     savePreferences: (prefs) =>
       ipcRenderer.invoke('tabs:save-preferences', prefs),
+  },
+  table: {
+    getPreferences: () => ipcRenderer.invoke('table:get-preferences'),
+    savePreferences: (prefs) =>
+      ipcRenderer.invoke('table:save-preferences', prefs),
   },
 };
 

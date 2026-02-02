@@ -5,7 +5,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
 import { ContainerInfo, TabState } from '@core/models';
-import { LayoutPreferencesService, NotificationService, TabsPersistenceService } from '@core/services';
+import { LayoutPreferencesService, NotificationService, TabsPersistenceService, TablePreferencesService } from '@core/services';
 import { CollapseButtonComponent } from '@shared/components';
 import { ConnectionsStore } from '../connections/store';
 import { ExplorerStore, QueryStore } from './store';
@@ -307,6 +307,7 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   private router = inject(Router);
   private layoutService = inject(LayoutPreferencesService);
   private tabsService = inject(TabsPersistenceService);
+  private tablePrefsService = inject(TablePreferencesService);
   private notificationService = inject(NotificationService);
 
   // Layout state
@@ -352,6 +353,9 @@ export class ExplorerComponent implements OnInit, OnDestroy {
       this.lastQueryPanelSize = prefs.queryPanelSize;
     }
 
+    // Load table preferences
+    await this.tablePrefsService.loadPreferences();
+
     // Load tabs preferences
     const tabsPrefs = await this.tabsService.loadPreferences();
     if (tabsPrefs.tabs.length > 0) {
@@ -370,9 +374,10 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
-    // Save layout and tabs before leaving
+    // Save layout, tabs, and table preferences before leaving
     this.layoutService.saveImmediately();
     this.tabsService.saveImmediately();
+    this.tablePrefsService.saveImmediately();
 
     // Reset stores when leaving explorer
     this.explorerStore.reset();
@@ -438,6 +443,7 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   onTabClosed(tab: TabState) {
     this.explorerStore.closeTab(tab.id);
     this.queryStore.removeTab(tab.id);
+    this.tablePrefsService.clearTabState(tab.id);
     this.saveTabsState();
   }
 

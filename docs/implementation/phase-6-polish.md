@@ -4,11 +4,39 @@
 
 This final phase adds polish features including inline cell editing, import/export, keyboard shortcuts, and overall UX improvements.
 
-## Steps
+## Completed Features
 
-### 6.1 Inline Cell Editing
+The following features have been implemented:
+- ✅ **Document Editing** - Via dialog with full JSON support
+- ✅ **Import/Export** - JSON and CSV support via ImportExportService
+- ✅ **Multiple Query Tabs** - With persistence across sessions
+- ✅ **Column Management** - Visibility, reorder, pin, container presets
+- ✅ **Table Sorting** - Click-to-sort with asc/desc/none cycle
+- ✅ **Table Filtering** - Global search + per-column filters
+- ✅ **Query Analyzer** - Index metrics, RU cost, execution time
+- ✅ **Dirty State Tracking** - Cell-level highlighting with revert
 
-Enhance `ResultsTableComponent` to support inline editing:
+## Remaining Steps
+
+### 6.3 Add Keyboard Shortcuts Dialog
+
+Create `src/app/shared/components/shortcuts-dialog/shortcuts-dialog.component.ts` to show available keyboard shortcuts.
+
+### 6.4 Add Unsaved Changes Guard
+
+Create `src/app/core/guards/unsaved-changes.guard.ts` to warn users before leaving with dirty changes.
+
+### 6.5 Add Loading Skeletons
+
+Create `src/app/shared/components/skeleton/skeleton.component.ts` for shimmer loading effects.
+
+---
+
+## Reference Implementation (Already Complete)
+
+### 6.1 Inline Cell Editing (✅ Implemented via Dialog)
+
+The app uses `DocumentDialogComponent` and `FieldEditorDialogComponent` for editing:
 
 ```typescript
 // Add to results-table.component.ts
@@ -107,9 +135,9 @@ export class ResultsTableComponent {
 }
 ```
 
-### 6.2 Import/Export Functionality
+### 6.2 Import/Export Functionality (✅ Implemented via ImportExportService)
 
-Create `src/app/features/query-editor/components/import-export/export-dialog.component.ts`:
+Reference implementation (already complete via `ImportExportService`):
 
 ```typescript
 import { Component, inject } from '@angular/core';
@@ -420,7 +448,7 @@ export class ImportDialogComponent {
 }
 ```
 
-### 6.3 Add Keyboard Shortcuts Guide
+### 6.3 Add Keyboard Shortcuts Guide (⏳ Pending)
 
 Create `src/app/shared/components/shortcuts-dialog/shortcuts-dialog.component.ts`:
 
@@ -514,7 +542,7 @@ import { MatDialogModule } from '@angular/material/dialog';
 export class ShortcutsDialogComponent {}
 ```
 
-### 6.4 Add Unsaved Changes Guard
+### 6.4 Add Unsaved Changes Guard (⏳ Pending)
 
 Create `src/app/core/guards/unsaved-changes.guard.ts`:
 
@@ -554,7 +582,7 @@ export const unsavedChangesGuard: CanDeactivateFn<HasUnsavedChanges> = (componen
 };
 ```
 
-### 6.5 Add Loading Skeletons
+### 6.5 Add Loading Skeletons (⏳ Pending)
 
 Create `src/app/shared/components/skeleton/skeleton.component.ts`:
 
@@ -591,7 +619,7 @@ export class SkeletonComponent {
 }
 ```
 
-### 6.6 Final App Config Updates
+### 6.6 Final App Config Updates (✅ Complete)
 
 Update `src/app/app.config.ts`:
 
@@ -622,7 +650,7 @@ export const appConfig: ApplicationConfig = {
 };
 ```
 
-### 6.7 Add Global Styles
+### 6.7 Add Global Styles (✅ Complete)
 
 Update `src/styles.scss` with final polish:
 
@@ -695,58 +723,80 @@ Update `src/styles.scss` with final polish:
 Full end-to-end testing:
 
 1. **Connection Management**
-   - [ ] Add new connection
-   - [ ] Test connection
-   - [ ] Edit connection
-   - [ ] Delete connection
-   - [ ] Connect and navigate to explorer
+   - [x] Add new connection
+   - [x] Test connection
+   - [x] Edit connection
+   - [x] Delete connection
+   - [x] Connect and navigate to explorer
 
 2. **Database Explorer**
-   - [ ] Databases load
-   - [ ] Expand to load containers
-   - [ ] Select container
-   - [ ] Refresh button works
-   - [ ] Disconnect returns to connections
+   - [x] Databases load
+   - [x] Expand to load containers
+   - [x] Select container
+   - [x] Refresh button works
+   - [x] Disconnect returns to connections
 
 3. **Query Editor**
-   - [ ] Monaco Editor loads
-   - [ ] F5 executes query
-   - [ ] Results display in table
-   - [ ] Load More works
-   - [ ] Query history shows
+   - [x] Monaco Editor loads
+   - [x] F5 executes query
+   - [x] Results display in table
+   - [x] Load More works
+   - [x] Query history shows
+   - [x] Multiple tabs with persistence
 
 4. **CRUD Operations**
-   - [ ] Double-click edits cell
-   - [ ] Enter saves, Escape cancels
-   - [ ] Dirty cells highlighted
-   - [ ] Revert cell works
-   - [ ] Delete marks row
-   - [ ] Undo delete works
-   - [ ] Commit saves all changes
-   - [ ] Discard clears changes
+   - [x] Double-click opens edit dialog
+   - [x] Dirty cells highlighted
+   - [x] Revert cell works
+   - [x] Delete marks row
+   - [x] Undo delete works
+   - [x] Commit saves all changes
+   - [x] Discard clears changes
 
 5. **Import/Export**
-   - [ ] Export to JSON works
-   - [ ] Export to CSV works
-   - [ ] Import from JSON works
+   - [x] Export to JSON works
+   - [x] Export to CSV works
+   - [x] Import from JSON works
+   - [x] Import from CSV works
 
-6. **Polish**
-   - [ ] Keyboard shortcuts work
-   - [ ] Loading spinners display
-   - [ ] Error messages helpful
-   - [ ] Confirmation dialogs work
-   - [ ] Unsaved changes guard works
+6. **Column Management**
+   - [x] Column picker with visibility toggle
+   - [x] Column reordering via drag-drop
+   - [x] Column pinning (freeze left)
+   - [x] Save as Container Default
+   - [x] Reset to Container Default
+
+7. **Table Sorting & Filtering**
+   - [x] Click header to sort (asc/desc/none)
+   - [x] Global search across visible columns
+   - [x] Per-column filter inputs
+   - [x] Search highlighting
+
+8. **Query Analyzer**
+   - [x] Index metrics display
+   - [x] RU cost display
+   - [x] Execution time display
+
+9. **Polish**
+   - [x] Loading spinners display
+   - [x] Error messages helpful
+   - [x] Confirmation dialogs work
+   - [ ] Keyboard shortcuts dialog
+   - [ ] Unsaved changes guard
 
 ## Checklist
 
-- [ ] Inline cell editing complete
-- [ ] Import/Export dialogs working
-- [ ] Keyboard shortcuts implemented
-- [ ] Unsaved changes guard active
-- [ ] Loading skeletons added
-- [ ] Error handling polished
-- [ ] Accessibility basics covered
-- [ ] Full end-to-end testing passed
+- [x] Document editing via dialog
+- [x] Import/Export (JSON & CSV)
+- [x] Column management (visibility, order, pin)
+- [x] Table sorting
+- [x] Table filtering (global + per-column)
+- [x] Query analyzer
+- [x] Multiple tabs with persistence
+- [x] Error handling polished
+- [ ] Keyboard shortcuts dialog
+- [ ] Unsaved changes guard
+- [ ] Loading skeletons
 
 ## Congratulations!
 
@@ -756,14 +806,18 @@ You have completed the Cosmos DB NoSQL Viewer implementation. The application is
 2. **Packaging** for distribution (`npm run package`)
 3. **Further enhancements** as needed
 
+### Remaining Tasks
+
+- [ ] Keyboard shortcuts dialog (show available shortcuts)
+- [ ] Unsaved changes guard (warn before leaving with dirty changes)
+- [ ] Loading skeletons (shimmer effect while loading)
+
 ### Future Enhancements to Consider
 
 - Query syntax highlighting for CosmosSQL
 - Autocomplete based on container schema
-- Multiple query tabs
 - Container management (create/delete containers)
 - Index management
 - Stored procedures/triggers/UDFs support
-- Query execution plan visualization
 - Dark/light theme toggle
-- Custom column width persistence
+- Bulk operations (multi-select delete/update)

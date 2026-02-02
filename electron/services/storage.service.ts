@@ -31,10 +31,44 @@ interface TabsPreferences {
   activeTabId: string | null;
 }
 
+interface ColumnLayout {
+  path: string;
+  visible: boolean;
+  width: number;
+  order: number;
+  pinned: boolean;
+}
+
+interface ContainerColumnPreset {
+  columns: ColumnLayout[];
+}
+
+interface SortState {
+  column: string | null;
+  direction: 'asc' | 'desc' | null;
+}
+
+interface FilterState {
+  globalSearch: string;
+  columnFilters: Record<string, string>;
+}
+
+interface TabColumnState {
+  columns: ColumnLayout[];
+  sort: SortState;
+  filter: FilterState;
+}
+
+interface TablePreferencesData {
+  containers: Record<string, ContainerColumnPreset>;
+  tabs: Record<string, TabColumnState>;
+}
+
 interface StoreSchema {
   connections: ConnectionData[];
   layoutPreferences: LayoutPreferences;
   tabsPreferences: TabsPreferences;
+  tablePreferences: TablePreferencesData;
 }
 
 const DEFAULT_LAYOUT: LayoutPreferences = {
@@ -47,6 +81,11 @@ const DEFAULT_LAYOUT: LayoutPreferences = {
 const DEFAULT_TABS: TabsPreferences = {
   tabs: [],
   activeTabId: null,
+};
+
+const DEFAULT_TABLE_PREFERENCES: TablePreferencesData = {
+  containers: {},
+  tabs: {},
 };
 
 const store = new Store<StoreSchema>({
@@ -102,6 +141,11 @@ const store = new Store<StoreSchema>({
         activeTabId: { type: ['string', 'null'] },
       },
     },
+    tablePreferences: {
+      type: 'object',
+      default: DEFAULT_TABLE_PREFERENCES,
+      additionalProperties: true,
+    },
   },
 });
 
@@ -135,4 +179,12 @@ export function getTabsPreferences(): TabsPreferences {
 
 export function saveTabsPreferences(prefs: TabsPreferences): void {
   store.set('tabsPreferences', prefs);
+}
+
+export function getTablePreferences(): TablePreferencesData {
+  return store.get('tablePreferences', DEFAULT_TABLE_PREFERENCES);
+}
+
+export function saveTablePreferences(prefs: TablePreferencesData): void {
+  store.set('tablePreferences', prefs);
 }

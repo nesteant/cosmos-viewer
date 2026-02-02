@@ -23,33 +23,21 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 - ✅ **JetBrains Mono Font** - Local font (no CDN dependency)
 - ✅ **Column Highlighting** - Key (id), partition key, and system columns visually distinguished
 - ✅ **Query Analyzer** - Query explanation, optimization hints, index metrics with Ctrl+Shift+A
+- ✅ **Column Management** - Reorder via drag-drop, hide/show with picker, pin columns left, container presets
+- ✅ **Table Sorting** - Click column header to sort (asc/desc/none cycle)
+- ✅ **Table Filtering** - Global search + per-column filter inputs with highlighting
 
 ---
 
-## Priority 1: Column & Table Enhancements
+## Priority 1: Query Experience
 
-### 1.1 Column Management
-- **Reorder columns** via drag-and-drop
-- **Hide/show columns** with column picker dropdown
-- **Pin columns** left (freeze while scrolling)
-- Persist column preferences per container
-
-### 1.2 Table Sorting & Filtering
-- Click column header to sort (asc/desc/none)
-- Quick filter input per column
-- Global search across all visible data
-
----
-
-## Priority 2: Query Experience
-
-### 2.1 Query History
+### 1.1 Query History
 - Auto-save executed queries
 - Timestamp and execution stats (RU, time, rows)
 - Re-run from history
 - Search history
 
-### 2.2 Saved Queries / Favorites
+### 1.2 Saved Queries / Favorites
 - Save queries with name and description
 - Organize in folders
 - Quick access from sidebar or command palette
@@ -57,9 +45,9 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 
 ---
 
-## Priority 3: Keyboard & Navigation
+## Priority 2: Keyboard & Navigation
 
-### 3.1 Keyboard Shortcuts
+### 2.1 Keyboard Shortcuts
 | Action | Shortcut |
 |--------|----------|
 | Execute query | Cmd+Enter |
@@ -71,7 +59,7 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 | Close tab | Cmd+W |
 | Toggle sidebar | Cmd+B |
 
-### 3.2 Command Palette
+### 2.2 Command Palette
 - Fuzzy search for all actions
 - Recent containers
 - Recent queries
@@ -79,20 +67,20 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 
 ---
 
-## Priority 4: Document Operations
+## Priority 3: Document Operations
 
-### 4.1 Bulk Operations
+### 3.1 Bulk Operations
 - Multi-select rows (Shift+click, Cmd+click)
 - Bulk delete with confirmation
 - Bulk update (set field value for selected)
 - Bulk export selected
 
-### 4.2 Document Comparison
+### 3.2 Document Comparison
 - Diff view between original and modified
 - Side-by-side JSON comparison
 - Highlight added/removed/changed fields
 
-### 4.3 Clipboard Operations
+### 3.3 Clipboard Operations
 - Copy cell value
 - Copy row as JSON
 - Copy selected rows as JSON array
@@ -100,63 +88,63 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 
 ---
 
-## Priority 5: Connection Enhancements
+## Priority 4: Connection Enhancements
 
-### 5.1 Connection Organization
+### 4.1 Connection Organization
 - Connection groups/folders
 - Color coding for connections
 - Tags/labels
 
-### 5.2 Authentication Methods
+### 4.2 Authentication Methods
 - Connection string import/parse
 - Azure AD / Entra ID authentication
 - Read-only mode toggle
 
 ---
 
-## Priority 6: Performance & Monitoring
+## Priority 5: Performance & Monitoring
 
-### 6.1 RU Tracking
+### 5.1 RU Tracking
 - RU usage per query
 - RU history chart
 - Estimated RU before execution
 
-### 6.2 Container Stats
+### 5.2 Container Stats
 - Document count
 - Storage size
 - Partition key distribution
 
 ---
 
-## Priority 7: Import/Export Enhancements
+## Priority 6: Import/Export Enhancements
 
-### 7.1 Additional Formats
+### 6.1 Additional Formats
 - Excel (.xlsx) export
 - SQL INSERT statements export
 
-### 7.2 Import Options
+### 6.2 Import Options
 - Upsert mode (update if exists)
 - Field mapping UI
 - Preview before import
 
-### 7.3 Schema Operations
+### 6.3 Schema Operations
 - Generate TypeScript interfaces
 - JSON Schema generation
 
 ---
 
-## Priority 8: Advanced Features
+## Priority 7: Advanced Features
 
-### 8.1 Stored Procedures & Triggers
+### 7.1 Stored Procedures & Triggers
 - View/list stored procedures
 - Execute with parameters
 - View triggers and UDFs
 
-### 8.2 Change Feed Viewer
+### 7.2 Change Feed Viewer
 - Real-time change feed display
 - Filter by operation type
 
-### 8.3 Index Management
+### 7.3 Index Management
 - View indexing policy
 - Edit indexing policy
 

@@ -9,9 +9,12 @@
 ### Core Functionality
 - **Connection Management**: Store and manage multiple Cosmos DB connections securely
 - **Database Explorer**: Browse databases and containers in a tree view
-- **Query Editor**: Execute CosmosSQL queries with Monaco Editor
+- **Query Editor**: Execute CosmosSQL queries with Monaco Editor, multiple tabs
 - **Document CRUD**: Create, read, update, delete documents with change tracking
 - **Import/Export**: JSON and CSV format support
+- **Query Analyzer**: Index metrics, RU cost, execution time analysis
+- **Column Management**: Reorder, hide/show, pin columns with container presets
+- **Table Sorting & Filtering**: Click-to-sort, global search, per-column filters
 
 ## Tech Stack
 

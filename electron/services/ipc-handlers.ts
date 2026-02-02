@@ -7,6 +7,8 @@ import {
   saveLayoutPreferences,
   getTabsPreferences,
   saveTabsPreferences,
+  getTablePreferences,
+  saveTablePreferences,
 } from './storage.service';
 
 /**
@@ -142,6 +144,25 @@ export function registerIpcHandlers(): void {
       saveTabsPreferences(prefs);
     } catch (error: any) {
       console.error('Failed to save tabs preferences:', error);
+      throw error;
+    }
+  });
+
+  // Table preferences handlers
+  ipcMain.handle('table:get-preferences', async () => {
+    try {
+      return getTablePreferences();
+    } catch (error: any) {
+      console.error('Failed to get table preferences:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('table:save-preferences', async (_, prefs) => {
+    try {
+      saveTablePreferences(prefs);
+    } catch (error: any) {
+      console.error('Failed to save table preferences:', error);
       throw error;
     }
   });

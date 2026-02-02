@@ -1,17 +1,21 @@
-import { Component, inject, input, computed, ElementRef, ViewChild, signal, HostListener } from '@angular/core';
+import { Component, inject, input, computed, ElementRef, ViewChild, signal, HostListener, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { ContainerInfo, CosmosDocument } from '@core/models';
+import { ContainerInfo, CosmosDocument, ColumnLayout, SortDirection, createContainerKey } from '@core/models';
+import { TablePreferencesService } from '@core/services';
 import { detectApplicableTypes, getSpecialOptions, isValidGuid, TypeOption, FieldType } from '@core/utils/json-flattener';
 import { getValueAtPath, stringToPath, isSystemField } from '@core/utils/path-utils';
 import { ConfirmDialogComponent, CellFormatterComponent } from '@shared/components';
-import { QueryStore } from '../../store';
+import { ExplorerStore, QueryStore } from '../../store';
 import { JsonViewerDialogComponent } from '../json-viewer-dialog/json-viewer-dialog.component';
 import { DocumentDialogComponent } from '../document-dialog/document-dialog.component';
 import { FieldEditorDialogComponent } from '../field-editor-dialog/field-editor-dialog.component';
@@ -22,8 +26,11 @@ import { ImportExportService } from '../import-export/import-export.service';
   standalone: true,
   imports: [
     FormsModule,
+    DragDropModule,
     MatTableModule,
     MatButtonModule,
+    MatCheckboxModule,
+    MatDividerModule,
     MatIconModule,
     MatMenuModule,
     MatProgressSpinnerModule,
@@ -102,6 +109,95 @@ import { ImportExportService } from '../import-export/import-export.service';
               Load More
             </button>
           }
+
+          <div class="toolbar-separator"></div>
+
+          <!-- Global Search -->
+          <div class="global-search">
+            <mat-icon>search</mat-icon>
+            <input
+              type="text"
+              placeholder="Search..."
+              [value]="globalSearchValue()"
+              (input)="onGlobalSearchChange($any($event.target).value)"
+            />
+            @if (globalSearchValue()) {
+              <button mat-icon-button (click)="onGlobalSearchChange('')" class="clear-btn">
+                <mat-icon>close</mat-icon>
+              </button>
+            }
+          </div>
+
+          <!-- Column Filter Toggle -->
+          <button
+            mat-icon-button
+            (click)="toggleColumnFilters()"
+            [class.active]="showColumnFilters()"
+            matTooltip="Toggle column filters"
+          >
+            <mat-icon>filter_list</mat-icon>
+          </button>
+
+          <!-- Column Picker -->
+          <button mat-icon-button [matMenuTriggerFor]="columnMenu" matTooltip="Manage columns">
+            <mat-icon>view_column</mat-icon>
+          </button>
+          <mat-menu #columnMenu="matMenu" class="column-picker-menu">
+            <div class="column-picker-header" (click)="$event.stopPropagation()">
+              <span>Columns</span>
+              <div class="column-picker-actions">
+                <mat-icon
+                  class="action-icon"
+                  (click)="showAllColumns()"
+                  matTooltip="Show All"
+                >visibility</mat-icon>
+                <mat-icon
+                  class="action-icon"
+                  (click)="hideAllColumns()"
+                  matTooltip="Hide All"
+                >visibility_off</mat-icon>
+                <span class="action-divider"></span>
+                <mat-icon
+                  class="action-icon"
+                  (click)="saveAsContainerPreset()"
+                  matTooltip="Save as Container Default"
+                >save</mat-icon>
+                <mat-icon
+                  class="action-icon"
+                  (click)="resetToContainerPreset()"
+                  matTooltip="Reset to Container Default"
+                >restore</mat-icon>
+              </div>
+            </div>
+            <div
+              class="column-picker-list"
+              cdkDropList
+              (cdkDropListDropped)="onColumnDrop($event)"
+              (click)="$event.stopPropagation()"
+            >
+              @for (col of orderedColumnsForPicker(); track col.path) {
+                <div class="column-picker-item" cdkDrag cdkDragLockAxis="y">
+                  <span class="drag-handle">⋮⋮</span>
+                  <mat-checkbox
+                    [checked]="isColumnVisible(col.path)"
+                    (change)="toggleColumnVisibility(col.path)"
+                    [disabled]="col.path === 'id'"
+                    (mousedown)="$event.stopPropagation()"
+                  >
+                    {{ col.label }}
+                  </mat-checkbox>
+                  <span class="picker-spacer"></span>
+                  <mat-icon
+                    class="pin-btn"
+                    [class.pinned]="isColumnPinned(col.path)"
+                    (click)="toggleColumnPin(col.path)"
+                    (mousedown)="$event.stopPropagation()"
+                    matTooltip="Pin column"
+                  >push_pin</mat-icon>
+                </div>
+              }
+            </div>
+          </mat-menu>
         </div>
       </div>
 
@@ -115,7 +211,7 @@ import { ImportExportService } from '../import-export/import-export.service';
 
       @if (queryStore.hasDocuments()) {
         <div class="table-wrapper" tabindex="0" #tableWrapper (scroll)="closeContextMenu()">
-          <table mat-table [dataSource]="queryStore.documents()">
+          <table mat-table [dataSource]="processedDocuments()">
             <!-- Row number column -->
             <ng-container matColumnDef="_rowNum">
               <th mat-header-cell *matHeaderCellDef class="row-num-cell">#</th>
@@ -124,7 +220,7 @@ import { ImportExportService } from '../import-export/import-export.service';
               </td>
             </ng-container>
 
-            @for (column of displayedColumns(); track column) {
+            @for (column of visibleColumns(); track column) {
               <ng-container [matColumnDef]="column">
                 <th
                   mat-header-cell
@@ -132,12 +228,18 @@ import { ImportExportService } from '../import-export/import-export.service';
                   [class.id-column]="column === 'id'"
                   [class.partition-key-column]="column === partitionKeyField() && column !== 'id'"
                   [class.system-column]="isSystemField(column)"
+                  [class.pinned-column]="isColumnPinned(column)"
+                  [class.sortable]="true"
                   [style.width.px]="columnWidths()[column]"
                   [style.min-width.px]="columnWidths()[column]"
                   [style.max-width.px]="columnWidths()[column]"
+                  (click)="onHeaderClick(column, $event)"
                 >
                   <div class="header-content">
                     <span class="header-label">
+                      @if (isColumnPinned(column)) {
+                        <mat-icon class="pin-indicator">push_pin</mat-icon>
+                      }
                       @if (column === 'id') {
                         <mat-icon class="key-icon">key</mat-icon>
                       } @else if (column === partitionKeyField()) {
@@ -145,11 +247,26 @@ import { ImportExportService } from '../import-export/import-export.service';
                       }
                       {{ getColumnLabel(column) }}
                     </span>
+                    @if (getSortDirection(column)) {
+                      <mat-icon class="sort-icon">
+                        {{ getSortDirection(column) === 'asc' ? 'arrow_upward' : 'arrow_downward' }}
+                      </mat-icon>
+                    }
                     <div
                       class="resize-handle"
-                      (mousedown)="startResize($event, column)"
+                      (mousedown)="startResize($event, column); $event.stopPropagation()"
                     ></div>
                   </div>
+                  @if (showColumnFilters()) {
+                    <div class="column-filter" (click)="$event.stopPropagation()">
+                      <input
+                        type="text"
+                        placeholder="Filter..."
+                        [value]="getColumnFilter(column)"
+                        (input)="onColumnFilterChange(column, $any($event.target).value)"
+                      />
+                    </div>
+                  }
                 </th>
                 <td
                   mat-cell
@@ -666,11 +783,314 @@ import { ImportExportService } from '../import-export/import-export.service';
         height: 64px;
         opacity: 0.5;
       }
+
+      /* Toolbar separator */
+      .toolbar-separator {
+        width: 1px;
+        height: 24px;
+        background: rgba(255, 255, 255, 0.15);
+        margin: 0 8px;
+      }
+
+      /* Global search */
+      .global-search {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        min-width: 160px;
+      }
+
+      .global-search mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .global-search input {
+        flex: 1;
+        background: none;
+        border: none;
+        color: white;
+        font-size: 12px;
+        outline: none;
+        min-width: 80px;
+      }
+
+      .global-search input::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+      }
+
+      .global-search .clear-btn {
+        width: 20px;
+        height: 20px;
+        line-height: 20px;
+      }
+
+      .global-search .clear-btn mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+
+      button.active {
+        color: #bb86fc;
+      }
+
+      /* Column picker menu */
+      ::ng-deep .column-picker-menu {
+        min-width: 220px;
+        max-height: 400px;
+        border-radius: 8px !important;
+      }
+
+      ::ng-deep .column-picker-menu .mat-mdc-menu-content {
+        padding: 0 !important;
+      }
+
+      .column-picker-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        background: rgba(187, 134, 252, 0.08);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .column-picker-header > span {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .column-picker-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .column-picker-actions .action-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        padding: 4px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: rgba(255, 255, 255, 0.5);
+        transition: all 0.15s;
+      }
+
+      .column-picker-actions .action-icon:hover {
+        color: #bb86fc;
+        background: rgba(187, 134, 252, 0.15);
+      }
+
+      .action-divider {
+        width: 1px;
+        height: 16px;
+        background: rgba(255, 255, 255, 0.15);
+        margin: 0 4px;
+      }
+
+      .column-picker-list {
+        max-height: 200px;
+        overflow-y: auto;
+        padding: 6px 0;
+        user-select: none;
+      }
+
+      .column-picker-item {
+        display: flex;
+        align-items: center;
+        padding: 5px 10px;
+        gap: 6px;
+        min-height: 30px;
+        user-select: none;
+        cursor: grab;
+        transition: background 0.1s;
+      }
+
+      .column-picker-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .column-picker-item mat-checkbox {
+        font-size: 12px;
+      }
+
+      ::ng-deep .column-picker-item .mdc-checkbox {
+        width: 16px;
+        height: 16px;
+        padding: 0;
+      }
+
+      ::ng-deep .column-picker-item .mdc-checkbox__background {
+        width: 14px;
+        height: 14px;
+        top: 1px;
+        left: 1px;
+      }
+
+      ::ng-deep .column-picker-item .mdc-form-field {
+        font-size: 12px;
+      }
+
+      ::ng-deep .column-picker-item .mdc-form-field > label {
+        padding-left: 6px;
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      .picker-spacer {
+        flex: 1;
+      }
+
+      .column-picker-item .drag-handle {
+        color: rgba(255, 255, 255, 0.25);
+        font-size: 11px;
+        letter-spacing: -3px;
+        flex-shrink: 0;
+      }
+
+      .column-picker-item:hover .drag-handle {
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .column-picker-item .pin-btn {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+        color: rgba(255, 255, 255, 0.25);
+        flex-shrink: 0;
+        transition: all 0.15s;
+      }
+
+      .column-picker-item:hover .pin-btn {
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .column-picker-item .pin-btn:hover {
+        color: #bb86fc;
+      }
+
+      .column-picker-item .pin-btn.pinned {
+        color: #bb86fc;
+        transform: rotate(45deg);
+      }
+
+      /* Sorting */
+      th.sortable {
+        cursor: pointer;
+      }
+
+      th.sortable:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .sort-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+        margin-left: 4px;
+        color: #bb86fc;
+      }
+
+      .pin-indicator {
+        font-size: 12px;
+        width: 12px;
+        height: 12px;
+        margin-right: 4px;
+        color: #bb86fc;
+        transform: rotate(45deg);
+      }
+
+      /* Pinned columns */
+      th.pinned-column,
+      td.pinned-column {
+        position: sticky;
+        left: 45px;
+        z-index: 2;
+        background: #252525;
+        border-right: 2px solid rgba(187, 134, 252, 0.3);
+      }
+
+      th.pinned-column {
+        z-index: 4;
+      }
+
+      /* Column filters */
+      .column-filter {
+        padding: 4px 8px 4px 4px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        margin-top: 4px;
+      }
+
+      .column-filter input {
+        width: 100%;
+        padding: 4px 6px;
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        color: white;
+        font-size: 11px;
+        outline: none;
+      }
+
+      .column-filter input:focus {
+        border-color: #bb86fc;
+      }
+
+      .column-filter input::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+      }
+
+      /* Search highlighting */
+      ::ng-deep .highlight {
+        background: rgba(255, 235, 59, 0.3);
+        border-radius: 2px;
+        padding: 0 2px;
+      }
+
+      /* Drag-drop column reordering */
+      ::ng-deep .column-picker-item.cdk-drag-preview {
+        display: flex;
+        align-items: center;
+        background: linear-gradient(135deg, #2d2d44 0%, #252538 100%);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(187, 134, 252, 0.2);
+        border-radius: 6px;
+        padding: 5px 10px;
+        font-size: 12px;
+        min-height: 30px;
+        gap: 6px;
+        user-select: none;
+      }
+
+      ::ng-deep .column-picker-item.cdk-drag-placeholder {
+        background: rgba(187, 134, 252, 0.1);
+        border: 1px dashed rgba(187, 134, 252, 0.3);
+        border-radius: 4px;
+      }
+
+      ::ng-deep .cdk-drop-list-dragging .column-picker-item:not(.cdk-drag-placeholder) {
+        transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+      }
+
+      ::ng-deep .cdk-drag-animating {
+        transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+      }
     `,
   ],
 })
 export class ResultsTableComponent {
   readonly queryStore = inject(QueryStore);
+  private readonly explorerStore = inject(ExplorerStore);
+  private readonly tablePrefs = inject(TablePreferencesService);
   private dialog = inject(MatDialog);
   private importExportService = inject(ImportExportService);
 
@@ -702,10 +1122,159 @@ export class ResultsTableComponent {
   private readonly MIN_COLUMN_WIDTH = 60;
   private readonly MAX_COLUMN_WIDTH = 600;
 
+  // Column filters toggle
+  showColumnFilters = signal(false);
+
+  // Current tab and container key
+  private currentTabId = computed(() => this.explorerStore.activeTabId());
+  private containerKey = computed(() => {
+    const cont = this.container();
+    const connectionId = sessionStorage.getItem('activeConnectionId');
+    if (!cont || !connectionId) return null;
+    return createContainerKey(connectionId, cont.databaseId, cont.id);
+  });
+
+  // Column preferences for current tab
+  private columnPrefs = computed(() => {
+    const tabId = this.currentTabId();
+    if (!tabId) return [];
+    return this.tablePrefs.preferences().tabs[tabId]?.columns ?? [];
+  });
+
+  // Sort state for current tab
+  private sortState = computed(() => {
+    const tabId = this.currentTabId();
+    if (!tabId) return { column: null, direction: null };
+    return this.tablePrefs.getSortState(tabId);
+  });
+
+  // Filter state for current tab
+  private filterState = computed(() => {
+    const tabId = this.currentTabId();
+    if (!tabId) return { globalSearch: '', columnFilters: {} };
+    return this.tablePrefs.getFilterState(tabId);
+  });
+
+  // Global search value
+  globalSearchValue = computed(() => this.filterState().globalSearch);
+
+  // Ordered columns for picker (by saved order)
+  orderedColumnsForPicker = computed(() => {
+    const prefs = this.columnPrefs();
+    const queryColumns = this.queryStore.columns();
+
+    if (prefs.length === 0) {
+      return queryColumns;
+    }
+
+    // Sort by saved order
+    return [...queryColumns].sort((a, b) => {
+      const prefA = prefs.find(p => p.path === a.path);
+      const prefB = prefs.find(p => p.path === b.path);
+      const orderA = prefA?.order ?? 1000;
+      const orderB = prefB?.order ?? 1000;
+      return orderA - orderB;
+    });
+  });
+
+  // Visible columns (respecting visibility and order)
+  visibleColumns = computed(() => {
+    const prefs = this.columnPrefs();
+    if (prefs.length === 0) {
+      // Fall back to query store columns
+      return this.queryStore.columns().map(c => c.path);
+    }
+    return prefs
+      .filter(p => p.visible)
+      .sort((a, b) => {
+        // Pinned columns first
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return a.order - b.order;
+      })
+      .map(p => p.path);
+  });
+
+  // Processed documents (filtered and sorted)
+  processedDocuments = computed(() => {
+    let docs = [...this.queryStore.documents()];
+    const filter = this.filterState();
+    const sort = this.sortState();
+    const visibleCols = this.visibleColumns();
+
+    // Apply global search filter
+    if (filter.globalSearch) {
+      const search = filter.globalSearch.toLowerCase();
+      docs = docs.filter(doc =>
+        visibleCols.some(col => {
+          const value = this.getCellValue(doc, col);
+          return String(value ?? '').toLowerCase().includes(search);
+        })
+      );
+    }
+
+    // Apply column filters
+    for (const [col, filterVal] of Object.entries(filter.columnFilters)) {
+      if (filterVal) {
+        const search = filterVal.toLowerCase();
+        docs = docs.filter(doc => {
+          const value = this.getCellValue(doc, col);
+          return String(value ?? '').toLowerCase().includes(search);
+        });
+      }
+    }
+
+    // Apply sorting
+    if (sort.column && sort.direction) {
+      const sortCol = sort.column;
+      const sortDir = sort.direction;
+      docs.sort((a, b) => {
+        const aVal = this.getCellValue(a, sortCol);
+        const bVal = this.getCellValue(b, sortCol);
+
+        // Handle nulls
+        if (aVal == null && bVal == null) return 0;
+        if (aVal == null) return sortDir === 'asc' ? 1 : -1;
+        if (bVal == null) return sortDir === 'asc' ? -1 : 1;
+
+        // Compare based on type
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+          return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+
+        const aStr = String(aVal);
+        const bStr = String(bVal);
+        const cmp = aStr.localeCompare(bStr);
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return docs;
+  });
+
+  constructor() {
+    // Initialize column preferences when columns change
+    effect(() => {
+      const tabId = this.currentTabId();
+      const containerKey = this.containerKey();
+      const columns = this.queryStore.columns();
+
+      if (tabId && containerKey && columns.length > 0) {
+        this.tablePrefs.initializeTabColumns(
+          tabId,
+          containerKey,
+          columns.map(c => c.path)
+        );
+      }
+    });
+  }
+
   columnWidths = computed(() => {
     const widths: Record<string, number> = {};
-    for (const col of this.displayedColumns()) {
-      widths[col] = this.columnWidthsMap()[col] ?? this.DEFAULT_COLUMN_WIDTH;
+    for (const col of this.visibleColumns()) {
+      // Check tab preferences first
+      const pref = this.columnPrefs().find(p => p.path === col);
+      widths[col] = pref?.width ?? this.columnWidthsMap()[col] ?? this.DEFAULT_COLUMN_WIDTH;
     }
     return widths;
   });
@@ -715,7 +1284,7 @@ export class ResultsTableComponent {
   });
 
   allColumns = computed(() => {
-    return ['_rowNum', ...this.displayedColumns()];
+    return ['_rowNum', ...this.visibleColumns()];
   });
 
   // Extract partition key field name from path (e.g., "/userId" -> "userId")
@@ -731,6 +1300,133 @@ export class ResultsTableComponent {
   getColumnLabel(path: string): string {
     const column = this.queryStore.columns().find((c) => c.path === path);
     return column?.label ?? path;
+  }
+
+  // Column visibility methods
+  isColumnVisible(path: string): boolean {
+    const pref = this.columnPrefs().find(p => p.path === path);
+    return pref?.visible ?? true;
+  }
+
+  toggleColumnVisibility(path: string): void {
+    const tabId = this.currentTabId();
+    if (!tabId) return;
+    const pref = this.columnPrefs().find(p => p.path === path);
+    if (pref) {
+      this.tablePrefs.updateTabColumn(tabId, path, { visible: !pref.visible });
+    }
+  }
+
+  showAllColumns(): void {
+    const tabId = this.currentTabId();
+    if (!tabId) return;
+    const columns = this.columnPrefs().map(c => ({ ...c, visible: true }));
+    this.tablePrefs.updateTabColumns(tabId, columns);
+  }
+
+  hideAllColumns(): void {
+    const tabId = this.currentTabId();
+    if (!tabId) return;
+    // Keep id visible
+    const columns = this.columnPrefs().map(c => ({
+      ...c,
+      visible: c.path === 'id',
+    }));
+    this.tablePrefs.updateTabColumns(tabId, columns);
+  }
+
+  // Column pinning methods
+  isColumnPinned(path: string): boolean {
+    const pref = this.columnPrefs().find(p => p.path === path);
+    return pref?.pinned ?? false;
+  }
+
+  toggleColumnPin(path: string): void {
+    const tabId = this.currentTabId();
+    if (!tabId) return;
+    const pref = this.columnPrefs().find(p => p.path === path);
+    if (pref) {
+      this.tablePrefs.updateTabColumn(tabId, path, { pinned: !pref.pinned });
+    }
+  }
+
+  // Drag-drop column reordering
+  onColumnDrop(event: CdkDragDrop<unknown>): void {
+    const tabId = this.currentTabId();
+    if (!tabId || event.previousIndex === event.currentIndex) return;
+
+    this.tablePrefs.reorderColumns(tabId, event.previousIndex, event.currentIndex);
+  }
+
+  // Sorting methods
+  getSortDirection(column: string): SortDirection {
+    const sort = this.sortState();
+    return sort.column === column ? sort.direction : null;
+  }
+
+  onHeaderClick(column: string, event: MouseEvent): void {
+    // Don't sort if resizing
+    if (this.resizingColumn) return;
+
+    const tabId = this.currentTabId();
+    if (!tabId) return;
+
+    const current = this.sortState();
+    let newDirection: SortDirection;
+
+    if (current.column !== column) {
+      newDirection = 'asc';
+    } else if (current.direction === 'asc') {
+      newDirection = 'desc';
+    } else {
+      newDirection = null;
+    }
+
+    this.tablePrefs.updateSort(tabId, {
+      column: newDirection ? column : null,
+      direction: newDirection,
+    });
+  }
+
+  // Filter methods
+  toggleColumnFilters(): void {
+    this.showColumnFilters.update(v => !v);
+  }
+
+  onGlobalSearchChange(value: string): void {
+    const tabId = this.currentTabId();
+    if (!tabId) return;
+    this.tablePrefs.updateFilter(tabId, { globalSearch: value });
+  }
+
+  getColumnFilter(column: string): string {
+    return this.filterState().columnFilters[column] ?? '';
+  }
+
+  onColumnFilterChange(column: string, value: string): void {
+    const tabId = this.currentTabId();
+    if (!tabId) return;
+    const current = this.filterState().columnFilters;
+    this.tablePrefs.updateFilter(tabId, {
+      columnFilters: { ...current, [column]: value },
+    });
+  }
+
+  // Preset methods
+  saveAsContainerPreset(): void {
+    const tabId = this.currentTabId();
+    const containerKey = this.containerKey();
+    if (tabId && containerKey) {
+      this.tablePrefs.saveAsContainerPreset(tabId, containerKey);
+    }
+  }
+
+  resetToContainerPreset(): void {
+    const tabId = this.currentTabId();
+    const containerKey = this.containerKey();
+    if (tabId && containerKey) {
+      this.tablePrefs.resetToContainerPreset(tabId, containerKey);
+    }
   }
 
   // Column resize methods
