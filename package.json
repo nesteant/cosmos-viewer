@@ -20,10 +20,10 @@
     "electron:dev": "npm run electron:build && cross-env NODE_ENV=development electron .",
     "electron:start": "concurrently \"npm run start\" \"wait-on http://localhost:4200 && npm run electron:dev\"",
     "package": "npm run build:prod && npm run electron:build && electron-builder",
-    "package:mac": "npm run package -- --mac",
-    "package:win": "npm run package -- --win",
-    "package:linux": "npm run package -- --linux",
-    "package:all": "npm run build:prod && npm run electron:build && electron-builder --mac --win --linux"
+    "package:mac": "npm run package -- --mac --arm64 --x64",
+    "package:win": "npm run package -- --win --arm64 --x64",
+    "package:linux": "npm run package -- --linux --arm64 --x64",
+    "package:all": "npm run build:prod && npm run electron:build && electron-builder --mac --win --linux --arm64 --x64"
   },
   "dependencies": {
     "@angular/animations": "^19.0.0",
