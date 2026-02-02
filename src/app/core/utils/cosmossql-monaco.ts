@@ -3,12 +3,30 @@
  * Provides syntax highlighting and autocomplete for Cosmos DB SQL queries
  */
 
-// CosmosSQL keywords
+// Store for dynamic field suggestions
+let documentFields: string[] = [];
+let completionDisposable: any = null;
+
+/**
+ * Update document fields for autocomplete suggestions
+ */
+export function updateDocumentFields(fields: string[]): void {
+  documentFields = fields;
+}
+
+// CosmosSQL keywords (uppercase for syntax highlighting)
 const KEYWORDS = [
   'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'BETWEEN',
   'LIKE', 'ORDER', 'BY', 'ASC', 'DESC', 'TOP', 'DISTINCT',
-  'AS', 'JOIN', 'VALUE', 'NULL', 'TRUE', 'FALSE', 'UNDEFINED',
-  'OFFSET', 'LIMIT', 'EXISTS', 'GROUP', 'HAVING',
+  'AS', 'JOIN', 'VALUE', 'OFFSET', 'LIMIT', 'EXISTS', 'GROUP', 'HAVING',
+];
+
+// Cosmos DB literals - must be lowercase in queries
+const LITERALS = [
+  { label: 'true', detail: 'Boolean true', insertText: 'true' },
+  { label: 'false', detail: 'Boolean false', insertText: 'false' },
+  { label: 'null', detail: 'Null value', insertText: 'null' },
+  { label: 'undefined', detail: 'Undefined value', insertText: 'undefined' },
 ];
 
 // CosmosSQL built-in functions
@@ -130,6 +148,7 @@ export function registerCosmosSQL(monaco: any): void {
     ignoreCase: true,
     keywords: KEYWORDS,
     functions: FUNCTIONS,
+    literals: ['true', 'false', 'null', 'undefined'],
     operators: [
       '=', '>', '<', '!', '~', '?', ':', '==', '<=', '>=', '!=',
       '&&', '||', '++', '--', '+', '-', '*', '/', '&', '|', '^',
@@ -144,6 +163,7 @@ export function registerCosmosSQL(monaco: any): void {
         // Identifiers and keywords
         [/[a-zA-Z_]\w*/, {
           cases: {
+            '@literals': 'keyword.literal',
             '@keywords': 'keyword',
             '@functions': 'function',
             '@default': 'identifier'
@@ -203,7 +223,12 @@ export function registerCosmosSQL(monaco: any): void {
   });
 
   // Register completion provider for autocomplete
-  monaco.languages.registerCompletionItemProvider('cosmossql', {
+  if (completionDisposable) {
+    completionDisposable.dispose();
+  }
+
+  completionDisposable = monaco.languages.registerCompletionItemProvider('cosmossql', {
+    triggerCharacters: ['.', ' '],
     provideCompletionItems: (model: any, position: any) => {
       const word = model.getWordUntilPosition(position);
       const range = {
@@ -213,29 +238,85 @@ export function registerCosmosSQL(monaco: any): void {
         endColumn: word.endColumn,
       };
 
-      const suggestions = [
-        // Keywords
-        ...KEYWORDS.map(kw => ({
+      // Check if we're after "c." to provide field suggestions
+      const lineContent = model.getLineContent(position.lineNumber);
+      const textBeforeCursor = lineContent.substring(0, position.column - 1);
+      const afterDot = /c\.\s*$/.test(textBeforeCursor) || /c\.[a-zA-Z_]*$/.test(textBeforeCursor);
+
+      const suggestions: any[] = [];
+
+      // If after "c.", prioritize field suggestions
+      if (afterDot && documentFields.length > 0) {
+        documentFields.forEach((field, index) => {
+          suggestions.push({
+            label: field,
+            kind: monaco.languages.CompletionItemKind.Field,
+            insertText: field,
+            detail: 'Document field',
+            sortText: String(index).padStart(3, '0'), // Keep field order
+            range,
+          });
+        });
+      }
+
+      // Add field suggestions with c. prefix for general context
+      if (!afterDot && documentFields.length > 0) {
+        documentFields.forEach((field, index) => {
+          suggestions.push({
+            label: `c.${field}`,
+            kind: monaco.languages.CompletionItemKind.Field,
+            insertText: `c.${field}`,
+            detail: 'Document field',
+            sortText: `1_${String(index).padStart(3, '0')}`,
+            range,
+          });
+        });
+      }
+
+      // Keywords
+      KEYWORDS.forEach(kw => {
+        suggestions.push({
           label: kw,
           kind: monaco.languages.CompletionItemKind.Keyword,
           insertText: kw,
+          sortText: `2_${kw}`,
           range,
-        })),
-        // Functions with signatures
-        ...FUNCTIONS.map(fn => ({
+        });
+      });
+
+      // Literals (must be lowercase in Cosmos DB)
+      LITERALS.forEach(lit => {
+        suggestions.push({
+          label: lit.label,
+          kind: monaco.languages.CompletionItemKind.Constant,
+          insertText: lit.insertText,
+          detail: lit.detail,
+          sortText: `2_${lit.label}`,
+          range,
+        });
+      });
+
+      // Functions with signatures
+      FUNCTIONS.forEach(fn => {
+        suggestions.push({
           label: fn,
           kind: monaco.languages.CompletionItemKind.Function,
           insertText: fn + '($0)',
           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
           detail: FUNCTION_SIGNATURES[fn] || fn + '(...)',
+          sortText: `3_${fn}`,
           range,
-        })),
-        // Common snippets
+        });
+      });
+
+      // Common snippets
+      suggestions.push(
         {
           label: 'SELECT * FROM c',
           kind: monaco.languages.CompletionItemKind.Snippet,
           insertText: 'SELECT * FROM c',
           detail: 'Select all documents',
+          sortText: '4_select_all',
           range,
         },
         {
@@ -244,6 +325,7 @@ export function registerCosmosSQL(monaco: any): void {
           insertText: 'SELECT TOP ${1:10} * FROM c',
           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
           detail: 'Select top N documents',
+          sortText: '4_select_top',
           range,
         },
         {
@@ -252,6 +334,7 @@ export function registerCosmosSQL(monaco: any): void {
           insertText: 'WHERE ARRAY_CONTAINS(c.${1:field}, ${2:value})',
           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
           detail: 'Filter by array containing value',
+          sortText: '4_where_array',
           range,
         },
         {
@@ -260,9 +343,10 @@ export function registerCosmosSQL(monaco: any): void {
           insertText: 'ORDER BY c.${1:field} ${2|ASC,DESC|}',
           insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
           detail: 'Order results',
+          sortText: '4_order_by',
           range,
-        },
-      ];
+        }
+      );
 
       return { suggestions };
     },

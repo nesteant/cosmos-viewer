@@ -8,7 +8,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
 import { ContainerInfo } from '@core/models';
 import { NotificationService } from '@core/services';
-import { registerCosmosSQL } from '@core/utils/cosmossql-monaco';
+import { registerCosmosSQL, updateDocumentFields } from '@core/utils/cosmossql-monaco';
 import { ConnectionsStore } from '../../../connections/store';
 import { ExplorerStore, QueryStore } from '../../store';
 
@@ -106,7 +106,7 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
         class="editor"
         [options]="editorOptions"
         [(ngModel)]="query"
-        (ngModelChange)="queryStore.setQuery($event)"
+        (ngModelChange)="onQueryChange($event)"
         (onInit)="onEditorInit($event)"
       ></ngx-monaco-editor>
 
@@ -257,6 +257,7 @@ export class QueryEditorComponent implements OnInit {
   container = input<ContainerInfo | null>(null);
   sidebarCollapsed = input(false);
   execute = output<void>();
+  queryChange = output<string>();
 
   query = 'SELECT * FROM c';
   templates = QUERY_TEMPLATES;
@@ -279,6 +280,15 @@ export class QueryEditorComponent implements OnInit {
           this.query = tabQuery;
         }
       }
+    });
+
+    // Update Monaco autocomplete when columns change
+    effect(() => {
+      const columns = this.queryStore.columns();
+      const fields = columns
+        .map(col => col.path)
+        .filter(path => !path.startsWith('_')); // Exclude system fields from suggestions
+      updateDocumentFields(fields);
     });
   }
 
@@ -386,6 +396,7 @@ export class QueryEditorComponent implements OnInit {
   applyTemplate(template: QueryTemplate) {
     this.query = template.query;
     this.queryStore.setQuery(template.query);
+    this.queryChange.emit(template.query);
     // Focus the editor
     this.editorInstance?.focus();
   }
@@ -394,12 +405,19 @@ export class QueryEditorComponent implements OnInit {
     if (!this.query.trim()) return;
     this.query = this.formatSQL(this.query);
     this.queryStore.setQuery(this.query);
+    this.queryChange.emit(this.query);
   }
 
   clearQuery() {
     this.query = '';
     this.queryStore.setQuery('');
+    this.queryChange.emit('');
     this.editorInstance?.focus();
+  }
+
+  onQueryChange(query: string) {
+    this.queryStore.setQuery(query);
+    this.queryChange.emit(query);
   }
 
   private formatSQL(sql: string): string {
@@ -408,6 +426,7 @@ export class QueryEditorComponent implements OnInit {
       'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY',
       'HAVING', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
       'OFFSET', 'LIMIT', 'TOP', 'DISTINCT', 'VALUE', 'AS',
+      'NOT', 'IN', 'BETWEEN', 'LIKE', 'EXISTS',
     ];
 
     let formatted = sql.trim();
@@ -435,6 +454,16 @@ export class QueryEditorComponent implements OnInit {
       const regex = new RegExp(`\\b${kw}\\b`, 'gi');
       formatted = formatted.replace(regex, kw);
     }
+
+    // Cosmos DB: Boolean and null literals must be lowercase
+    formatted = formatted.replace(/\bTRUE\b/g, 'true');
+    formatted = formatted.replace(/\bFALSE\b/g, 'false');
+    formatted = formatted.replace(/\bNULL\b/g, 'null');
+    // Also handle mixed case
+    formatted = formatted.replace(/\b[Tt][Rr][Uu][Ee]\b/g, 'true');
+    formatted = formatted.replace(/\b[Ff][Aa][Ll][Ss][Ee]\b/g, 'false');
+    // Keep NULL as lowercase (but not inside strings)
+    formatted = formatted.replace(/\b[Nn][Uu][Ll][Ll]\b(?=\s|$|,|\))/g, 'null');
 
     return formatted;
   }

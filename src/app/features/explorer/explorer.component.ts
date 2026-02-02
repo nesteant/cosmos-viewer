@@ -108,7 +108,11 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
                   [visible]="!queryPanelCollapsed()"
                 >
                   <div class="query-panel">
-                    <app-query-editor [container]="container" [sidebarCollapsed]="sidebarCollapsed()" />
+                    <app-query-editor
+                      [container]="container"
+                      [sidebarCollapsed]="sidebarCollapsed()"
+                      (queryChange)="onQueryChange()"
+                    />
                     <app-collapse-button
                       class="query-collapse-btn"
                       direction="vertical"
@@ -434,6 +438,10 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   onTabClosed(tab: TabState) {
     this.explorerStore.closeTab(tab.id);
     this.queryStore.removeTab(tab.id);
+    this.saveTabsState();
+  }
+
+  onQueryChange() {
     this.saveTabsState();
   }
 
