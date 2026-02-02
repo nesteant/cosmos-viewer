@@ -129,12 +129,22 @@ import { ImportExportService } from '../import-export/import-export.service';
                 <th
                   mat-header-cell
                   *matHeaderCellDef
+                  [class.id-column]="column === 'id'"
+                  [class.partition-key-column]="column === partitionKeyField() && column !== 'id'"
+                  [class.system-column]="isSystemField(column)"
                   [style.width.px]="columnWidths()[column]"
                   [style.min-width.px]="columnWidths()[column]"
                   [style.max-width.px]="columnWidths()[column]"
                 >
                   <div class="header-content">
-                    <span class="header-label">{{ getColumnLabel(column) }}</span>
+                    <span class="header-label">
+                      @if (column === 'id') {
+                        <mat-icon class="key-icon">key</mat-icon>
+                      } @else if (column === partitionKeyField()) {
+                        <mat-icon class="key-icon partition">dynamic_feed</mat-icon>
+                      }
+                      {{ getColumnLabel(column) }}
+                    </span>
                     <div
                       class="resize-handle"
                       (mousedown)="startResize($event, column)"
@@ -147,6 +157,9 @@ import { ImportExportService } from '../import-export/import-export.service';
                   [class.dirty]="queryStore.isFieldDirty(doc.id, column)"
                   [class.editable]="!isSystemField(column)"
                   [class.cell-focused]="isCellFocused(doc.id, column)"
+                  [class.id-column]="column === 'id'"
+                  [class.partition-key-column]="column === partitionKeyField() && column !== 'id'"
+                  [class.system-column]="isSystemField(column)"
                   [style.width.px]="columnWidths()[column]"
                   [style.min-width.px]="columnWidths()[column]"
                   [style.max-width.px]="columnWidths()[column]"
@@ -429,6 +442,45 @@ import { ImportExportService } from '../import-export/import-export.service';
         background: rgba(255, 183, 77, 0.05);
       }
 
+      /* Key column highlighting */
+      .id-column {
+        background: rgba(255, 193, 7, 0.08);
+      }
+
+      th.id-column {
+        background: rgba(255, 193, 7, 0.15);
+      }
+
+      .partition-key-column {
+        background: rgba(156, 39, 176, 0.08);
+      }
+
+      th.partition-key-column {
+        background: rgba(156, 39, 176, 0.15);
+      }
+
+      .system-column {
+        background: rgba(96, 125, 139, 0.08);
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      th.system-column {
+        background: rgba(96, 125, 139, 0.15);
+      }
+
+      .key-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+        vertical-align: middle;
+        margin-right: 4px;
+        color: #ffc107;
+      }
+
+      .key-icon.partition {
+        color: #ce93d8;
+      }
+
       .inline-editor {
         position: absolute;
         top: 0;
@@ -664,6 +716,13 @@ export class ResultsTableComponent {
 
   allColumns = computed(() => {
     return ['_rowNum', ...this.displayedColumns()];
+  });
+
+  // Extract partition key field name from path (e.g., "/userId" -> "userId")
+  partitionKeyField = computed(() => {
+    const path = this.container()?.partitionKeyPath;
+    if (!path) return null;
+    return path.replace(/^\//, '');
   });
 
   // Context menu state
