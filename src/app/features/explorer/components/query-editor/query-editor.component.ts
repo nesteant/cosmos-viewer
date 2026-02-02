@@ -418,50 +418,97 @@ export class QueryEditorComponent implements OnInit {
   }
 
   private formatSQL(sql: string): string {
-    // Simple SQL formatter
     const keywords = [
       'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY',
       'HAVING', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN',
       'OFFSET', 'LIMIT', 'TOP', 'DISTINCT', 'VALUE', 'AS',
       'NOT', 'IN', 'BETWEEN', 'LIKE', 'EXISTS',
     ];
-
-    let formatted = sql.trim();
-
-    // Normalize whitespace
-    formatted = formatted.replace(/\s+/g, ' ');
-
-    // Add newlines before major keywords
     const majorKeywords = ['SELECT', 'FROM', 'WHERE', 'ORDER BY', 'GROUP BY', 'HAVING', 'OFFSET', 'LIMIT'];
-    for (const kw of majorKeywords) {
-      const regex = new RegExp(`\\b(${kw})\\b`, 'gi');
-      formatted = formatted.replace(regex, '\n$1');
+
+    // Split into segments: comments vs code blocks
+    const lines = sql.split('\n');
+    const segments: { type: 'comment' | 'code'; content: string }[] = [];
+    let currentCode: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('--')) {
+        // Flush any accumulated code
+        if (currentCode.length > 0) {
+          segments.push({ type: 'code', content: currentCode.join(' ') });
+          currentCode = [];
+        }
+        // Add comment segment (preserve original indentation)
+        segments.push({ type: 'comment', content: line });
+      } else {
+        currentCode.push(line);
+      }
+    }
+    // Flush remaining code
+    if (currentCode.length > 0) {
+      segments.push({ type: 'code', content: currentCode.join(' ') });
     }
 
-    // Add newlines before AND/OR (with indentation)
-    formatted = formatted.replace(/\b(AND|OR)\b/gi, '\n  $1');
+    // Format each segment
+    const formattedSegments = segments.map((segment, index) => {
+      if (segment.type === 'comment') {
+        // Preserve comment with consistent indentation (4 spaces for commented-out conditions)
+        const trimmed = segment.content.trim();
+        // If comment looks like a commented-out AND/OR condition, indent it
+        if (/^--\s*(AND|OR)\b/i.test(trimmed)) {
+          return '  ' + trimmed;
+        }
+        return trimmed;
+      }
 
-    // Trim leading newline and extra spaces
-    formatted = formatted.trim();
-    formatted = formatted.replace(/\n +/g, '\n  ');
-    formatted = formatted.replace(/^\n/, '');
+      // Format code
+      let code = segment.content.trim();
+      if (!code) return '';
 
-    // Uppercase keywords
-    for (const kw of keywords) {
-      const regex = new RegExp(`\\b${kw}\\b`, 'gi');
-      formatted = formatted.replace(regex, kw);
-    }
+      // Check if this code block starts with AND/OR (continuation after comment)
+      const startsWithCondition = /^(AND|OR)\b/i.test(code);
 
-    // Cosmos DB: Boolean and null literals must be lowercase
-    formatted = formatted.replace(/\bTRUE\b/g, 'true');
-    formatted = formatted.replace(/\bFALSE\b/g, 'false');
-    formatted = formatted.replace(/\bNULL\b/g, 'null');
-    // Also handle mixed case
-    formatted = formatted.replace(/\b[Tt][Rr][Uu][Ee]\b/g, 'true');
-    formatted = formatted.replace(/\b[Ff][Aa][Ll][Ss][Ee]\b/g, 'false');
-    // Keep NULL as lowercase (but not inside strings)
-    formatted = formatted.replace(/\b[Nn][Uu][Ll][Ll]\b(?=\s|$|,|\))/g, 'null');
+      // Normalize whitespace
+      code = code.replace(/\s+/g, ' ');
 
-    return formatted;
+      // Add newlines before major keywords
+      for (const kw of majorKeywords) {
+        const regex = new RegExp(`\\b(${kw})\\b`, 'gi');
+        code = code.replace(regex, '\n$1');
+      }
+
+      // Add newlines before AND/OR (with indentation)
+      code = code.replace(/\b(AND|OR)\b/gi, '\n  $1');
+
+      // Trim and fix indentation
+      code = code.trim();
+      code = code.replace(/\n +/g, '\n  ');
+      code = code.replace(/^\n/, '');
+
+      // Uppercase keywords
+      for (const kw of keywords) {
+        const regex = new RegExp(`\\b${kw}\\b`, 'gi');
+        code = code.replace(regex, kw);
+      }
+
+      // Cosmos DB: Boolean and null literals must be lowercase
+      code = code.replace(/\b[Tt][Rr][Uu][Ee]\b/g, 'true');
+      code = code.replace(/\b[Ff][Aa][Ll][Ss][Ee]\b/g, 'false');
+      code = code.replace(/\b[Nn][Uu][Ll][Ll]\b(?=\s|$|,|\))/g, 'null');
+
+      // If this block started with AND/OR but got moved to new line, ensure indent
+      if (startsWithCondition && index > 0) {
+        // The formatting already added newline+indent, but since this is a separate
+        // segment, we need to make sure the first AND/OR is indented
+        if (code.startsWith('AND') || code.startsWith('OR')) {
+          code = '  ' + code;
+        }
+      }
+
+      return code;
+    });
+
+    return formattedSegments.filter(s => s.length > 0).join('\n');
   }
 }
