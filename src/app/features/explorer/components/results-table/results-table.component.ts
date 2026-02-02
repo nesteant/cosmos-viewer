@@ -116,6 +116,14 @@ import { ImportExportService } from '../import-export/import-export.service';
       @if (queryStore.hasDocuments()) {
         <div class="table-wrapper" tabindex="0" #tableWrapper (scroll)="closeContextMenu()">
           <table mat-table [dataSource]="queryStore.documents()">
+            <!-- Row number column -->
+            <ng-container matColumnDef="_rowNum">
+              <th mat-header-cell *matHeaderCellDef class="row-num-cell">#</th>
+              <td mat-cell *matCellDef="let doc; let i = index" class="row-num-cell">
+                {{ i + 1 }}
+              </td>
+            </ng-container>
+
             @for (column of displayedColumns(); track column) {
               <ng-container [matColumnDef]="column">
                 <th
@@ -200,10 +208,10 @@ import { ImportExportService } from '../import-export/import-export.service';
               </ng-container>
             }
 
-            <tr mat-header-row *matHeaderRowDef="displayedColumns(); sticky: true"></tr>
+            <tr mat-header-row *matHeaderRowDef="allColumns(); sticky: true"></tr>
             <tr
               mat-row
-              *matRowDef="let row; columns: displayedColumns()"
+              *matRowDef="let row; columns: allColumns()"
               [class.dirty-row]="queryStore.isDocumentDirty(row.id)"
               (contextmenu)="onRowContextMenu($event, row)"
             ></tr>
@@ -366,6 +374,25 @@ import { ImportExportService } from '../import-export/import-export.service';
         white-space: nowrap;
         border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         position: relative;
+      }
+
+      .row-num-cell {
+        width: 45px !important;
+        min-width: 45px !important;
+        max-width: 45px !important;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 11px;
+        background: rgba(0, 0, 0, 0.15);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        position: sticky;
+        left: 0;
+        z-index: 1;
+      }
+
+      th.row-num-cell {
+        background: #1a1a1a;
+        z-index: 3;
       }
 
       td.mat-mdc-cell:has(.inline-editor),
@@ -633,6 +660,10 @@ export class ResultsTableComponent {
 
   displayedColumns = computed(() => {
     return this.queryStore.columns().map((c) => c.path);
+  });
+
+  allColumns = computed(() => {
+    return ['_rowNum', ...this.displayedColumns()];
   });
 
   // Context menu state
