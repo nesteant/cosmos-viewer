@@ -22,7 +22,8 @@
     "package": "npm run build:prod && npm run electron:build && electron-builder",
     "package:mac": "npm run package -- --mac",
     "package:win": "npm run package -- --win",
-    "package:linux": "npm run package -- --linux"
+    "package:linux": "npm run package -- --linux",
+    "package:all": "npm run build:prod && npm run electron:build && electron-builder --mac --win --linux"
   },
   "dependencies": {
     "@angular/animations": "^19.0.0",
