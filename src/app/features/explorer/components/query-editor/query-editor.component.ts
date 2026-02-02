@@ -1,4 +1,4 @@
-import { Component, inject, input, output, OnInit, signal, computed } from '@angular/core';
+import { Component, inject, input, output, OnInit, signal, computed, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -261,10 +261,26 @@ export class QueryEditorComponent implements OnInit {
   query = 'SELECT * FROM c';
   templates = QUERY_TEMPLATES;
   private editorInstance: any;
+  private lastActiveTabId: string | null = null;
 
   // Loading state for reconnection
   private isReconnecting = signal(false);
   isLoading = computed(() => this.isReconnecting() || this.queryStore.isExecuting());
+
+  constructor() {
+    // Sync query when active tab changes
+    effect(() => {
+      const activeTabId = this.explorerStore.activeTabId();
+      if (activeTabId && activeTabId !== this.lastActiveTabId) {
+        this.lastActiveTabId = activeTabId;
+        // Load query for the new active tab
+        const tabQuery = this.queryStore.query();
+        if (tabQuery !== this.query) {
+          this.query = tabQuery;
+        }
+      }
+    });
+  }
 
   editorOptions = {
     theme: 'vs-dark',

@@ -1,32 +1,18 @@
 import { FlatDocument, CosmosDocument } from '../models';
-import { pathToString, getAllPaths, getValueAtPath, stringToPath } from './path-utils';
+import { getValueAtPath, stringToPath } from './path-utils';
 
 /**
- * Flattens a nested Cosmos document into a flat key-value structure
- * for display in a table grid
+ * Flattens a Cosmos document for table display.
+ * Only top-level fields become columns - nested objects/arrays stay as complex values.
  */
 export function flattenDocument(doc: CosmosDocument): FlatDocument {
   const flat: FlatDocument = {
     _original: doc,
   };
 
-  const paths = getAllPaths(doc);
-
-  for (const { path, value } of paths) {
-    if (path.length === 0) continue;
-
-    const pathStr = pathToString(path);
-
-    // Store primitive values directly
-    if (
-      value === null ||
-      value === undefined ||
-      typeof value !== 'object' ||
-      (Array.isArray(value) && value.length === 0) ||
-      (typeof value === 'object' && Object.keys(value).length === 0)
-    ) {
-      flat[pathStr] = value;
-    }
+  // Only flatten top-level keys
+  for (const key of Object.keys(doc)) {
+    flat[key] = doc[key];
   }
 
   return flat;
@@ -79,10 +65,27 @@ export function getDisplayValue(value: any): string {
   if (value === undefined) return '';
   if (typeof value === 'object') {
     if (Array.isArray(value)) {
-      return value.length === 0 ? '[]' : `[${value.length} items]`;
+      if (value.length === 0) return '[]';
+      // Show preview for small primitive arrays
+      if (value.length <= 3 && value.every(v => typeof v !== 'object')) {
+        return `[${value.join(', ')}]`;
+      }
+      return `[${value.length} items]`;
     }
     const keys = Object.keys(value);
-    return keys.length === 0 ? '{}' : `{${keys.length} fields}`;
+    if (keys.length === 0) return '{}';
+    // Show preview for simple objects with few keys
+    if (keys.length <= 2) {
+      const preview = keys.map(k => {
+        const v = value[k];
+        if (v === null) return `${k}: null`;
+        if (typeof v === 'object') return `${k}: {...}`;
+        const str = String(v);
+        return `${k}: ${str.length > 15 ? str.slice(0, 15) + '...' : str}`;
+      }).join(', ');
+      return `{${preview}}`;
+    }
+    return `{${keys.length} fields}`;
   }
   return String(value);
 }

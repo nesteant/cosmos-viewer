@@ -1,9 +1,8 @@
 import { CosmosDocument, ColumnDefinition } from '../models';
-import { getAllPaths, pathToString } from './path-utils';
 
 /**
  * Detects columns from a set of documents
- * Analyzes all documents to find common and unique paths
+ * Only analyzes top-level keys - nested objects/arrays are shown as complex values
  */
 export function detectColumns(documents: CosmosDocument[]): ColumnDefinition[] {
   if (documents.length === 0) return [];
@@ -15,46 +14,28 @@ export function detectColumns(documents: CosmosDocument[]): ColumnDefinition[] {
       types: Set<string>;
       count: number;
       isSystem: boolean;
-      maxDepth: number;
     }
   >();
 
   // System fields that should appear first
   const systemFields = ['id', '_rid', '_self', '_etag', '_attachments', '_ts'];
 
-  // Analyze each document
+  // Analyze each document - only top-level keys
   for (const doc of documents) {
-    const paths = getAllPaths(doc);
-
-    for (const { path, value } of paths) {
-      if (path.length === 0) continue;
-
-      const pathStr = pathToString(path);
+    for (const key of Object.keys(doc)) {
+      const value = doc[key];
       const valueType = getValueType(value);
 
-      // Skip intermediate object/array paths, only track leaf values
-      if (valueType === 'object' || valueType === 'array') {
-        // Only include if empty
-        if (
-          (valueType === 'object' && Object.keys(value).length > 0) ||
-          (valueType === 'array' && value.length > 0)
-        ) {
-          continue;
-        }
-      }
-
-      const existing = columnMap.get(pathStr);
+      const existing = columnMap.get(key);
       if (existing) {
         existing.types.add(valueType);
         existing.count++;
       } else {
-        const firstSegment = String(path[0]);
-        columnMap.set(pathStr, {
-          path: pathStr,
+        columnMap.set(key, {
+          path: key,
           types: new Set([valueType]),
           count: 1,
-          isSystem: firstSegment.startsWith('_'),
-          maxDepth: path.length,
+          isSystem: key.startsWith('_'),
         });
       }
     }
@@ -62,12 +43,12 @@ export function detectColumns(documents: CosmosDocument[]): ColumnDefinition[] {
 
   // Convert to ColumnDefinition array
   const columns: ColumnDefinition[] = Array.from(columnMap.entries()).map(
-    ([path, info]) => ({
-      path,
-      label: getColumnLabel(path),
+    ([key, info]) => ({
+      path: key,
+      label: key,
       type: inferColumnType(info.types),
       isSystem: info.isSystem,
-      width: calculateColumnWidth(path, info.types),
+      width: calculateColumnWidth(key, info.types),
     })
   );
 
@@ -135,45 +116,26 @@ function inferColumnType(
   return 'mixed';
 }
 
-/**
- * Creates a display label from a path
- */
-function getColumnLabel(path: string): string {
-  // For nested paths, show the last segment
-  const segments = path.split('.');
-  let lastSegment = segments[segments.length - 1];
-
-  // Handle array indices
-  if (lastSegment.includes('[')) {
-    lastSegment = lastSegment.replace(/\[(\d+)\]/g, '[$1]');
-  }
-
-  return lastSegment;
-}
 
 /**
- * Calculates suggested column width based on path and type
+ * Calculates suggested column width based on key and type
  */
-function calculateColumnWidth(path: string, types: Set<string>): number {
+function calculateColumnWidth(key: string, types: Set<string>): number {
   const baseWidth = 120;
 
   // System fields are typically shorter
-  if (path === 'id') return 280;
-  if (path.startsWith('_')) return 150;
-
-  // Adjust based on path length (nested paths need more space)
-  const depth = path.split('.').length;
-  const depthBonus = (depth - 1) * 20;
+  if (key === 'id') return 280;
+  if (key.startsWith('_')) return 150;
 
   // Adjust based on type
   let typeBonus = 0;
   if (types.has('object') || types.has('array')) {
-    typeBonus = 50;
+    typeBonus = 50; // Complex values need more space for preview
   } else if (types.has('boolean')) {
     typeBonus = -30;
   }
 
-  return Math.min(400, Math.max(80, baseWidth + depthBonus + typeBonus));
+  return Math.min(400, Math.max(80, baseWidth + typeBonus));
 }
 
 /**
@@ -202,8 +164,7 @@ export function getCommonColumns(
   return allColumns.filter((col) => {
     let count = 0;
     for (const doc of documents) {
-      const paths = getAllPaths(doc);
-      if (paths.some((p) => pathToString(p.path) === col.path)) {
+      if (col.path in doc) {
         count++;
       }
     }

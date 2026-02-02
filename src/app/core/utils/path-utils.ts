@@ -94,6 +94,34 @@ export function isSystemField(path: string): boolean {
 }
 
 /**
+ * Check if array should be treated as a single value (not expanded into columns)
+ * This includes: primitive arrays, vectors (numeric arrays), large arrays
+ */
+function shouldTreatArrayAsValue(arr: any[]): boolean {
+  // Empty arrays are single values
+  if (arr.length === 0) return true;
+
+  // Large arrays (likely vectors or data blobs) - don't expand
+  if (arr.length > 20) return true;
+
+  // Check if all elements are primitives (numbers, strings, booleans)
+  const allPrimitives = arr.every(
+    (item) =>
+      item === null ||
+      typeof item === 'number' ||
+      typeof item === 'string' ||
+      typeof item === 'boolean'
+  );
+
+  // Numeric arrays (vectors/embeddings) should not be expanded
+  if (allPrimitives && arr.every((item) => typeof item === 'number')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Generates all paths in an object for flattening
  */
 export function getAllPaths(
@@ -108,9 +136,11 @@ export function getAllPaths(
   }
 
   if (Array.isArray(obj)) {
-    if (obj.length === 0) {
+    // Treat primitive/large arrays as single values
+    if (shouldTreatArrayAsValue(obj)) {
       results.push({ path: currentPath, value: obj });
     } else {
+      // Only expand arrays of objects
       obj.forEach((item, index) => {
         results.push(...getAllPaths(item, [...currentPath, index]));
       });
