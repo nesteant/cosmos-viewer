@@ -114,7 +114,7 @@ import { ImportExportService } from '../import-export/import-export.service';
       />
 
       @if (queryStore.hasDocuments()) {
-        <div class="table-wrapper" tabindex="0" #tableWrapper>
+        <div class="table-wrapper" tabindex="0" #tableWrapper (scroll)="closeContextMenu()">
           <table mat-table [dataSource]="queryStore.documents()">
             @for (column of displayedColumns(); track column) {
               <ng-container [matColumnDef]="column">
@@ -200,55 +200,50 @@ import { ImportExportService } from '../import-export/import-export.service';
               </ng-container>
             }
 
-            <ng-container matColumnDef="actions">
-              <th mat-header-cell *matHeaderCellDef></th>
-              <td mat-cell *matCellDef="let doc">
-                <button
-                  mat-icon-button
-                  [matMenuTriggerFor]="rowMenu"
-                  class="row-menu-trigger"
-                >
-                  <mat-icon>more_vert</mat-icon>
-                </button>
-                <mat-menu #rowMenu="matMenu">
-                  @if (queryStore.isDocumentDirty(doc.id)) {
-                    <button mat-menu-item (click)="onSaveDocument(doc)">
-                      <mat-icon>save</mat-icon>
-                      Save Changes
-                    </button>
-                    <button mat-menu-item (click)="onDiscardChanges(doc)">
-                      <mat-icon>undo</mat-icon>
-                      Discard Changes
-                    </button>
-                  }
-                  <button mat-menu-item (click)="onViewJson(doc)">
-                    <mat-icon>code</mat-icon>
-                    View/Edit JSON
-                  </button>
-                  <button mat-menu-item (click)="onDuplicateDocument(doc)">
-                    <mat-icon>content_copy</mat-icon>
-                    Duplicate
-                  </button>
-                  <button
-                    mat-menu-item
-                    class="delete-item"
-                    (click)="onDeleteDocument(doc)"
-                  >
-                    <mat-icon>delete</mat-icon>
-                    Delete
-                  </button>
-                </mat-menu>
-              </td>
-            </ng-container>
-
-            <tr mat-header-row *matHeaderRowDef="allColumns(); sticky: true"></tr>
+            <tr mat-header-row *matHeaderRowDef="displayedColumns(); sticky: true"></tr>
             <tr
               mat-row
-              *matRowDef="let row; columns: allColumns()"
+              *matRowDef="let row; columns: displayedColumns()"
               [class.dirty-row]="queryStore.isDocumentDirty(row.id)"
+              (contextmenu)="onRowContextMenu($event, row)"
             ></tr>
           </table>
         </div>
+
+        <!-- Context Menu -->
+        @if (contextMenu()) {
+          <div
+            class="context-menu"
+            [style.left.px]="contextMenu()!.x"
+            [style.top.px]="contextMenu()!.y"
+            (contextmenu)="$event.preventDefault()"
+          >
+            @if (queryStore.isDocumentDirty(contextMenu()!.doc.id)) {
+              <button class="context-menu-item" (click)="onSaveDocument(contextMenu()!.doc); closeContextMenu()">
+                <mat-icon>save</mat-icon>
+                Save Changes
+              </button>
+              <button class="context-menu-item" (click)="onDiscardChanges(contextMenu()!.doc); closeContextMenu()">
+                <mat-icon>undo</mat-icon>
+                Discard Changes
+              </button>
+              <div class="context-menu-divider"></div>
+            }
+            <button class="context-menu-item" (click)="onViewJson(contextMenu()!.doc); closeContextMenu()">
+              <mat-icon>code</mat-icon>
+              View/Edit JSON
+            </button>
+            <button class="context-menu-item" (click)="onDuplicateDocument(contextMenu()!.doc); closeContextMenu()">
+              <mat-icon>content_copy</mat-icon>
+              Duplicate
+            </button>
+            <div class="context-menu-divider"></div>
+            <button class="context-menu-item delete" (click)="onDeleteDocument(contextMenu()!.doc); closeContextMenu()">
+              <mat-icon>delete</mat-icon>
+              Delete
+            </button>
+          </div>
+        }
       } @else if (!queryStore.isExecuting()) {
         <div class="empty-state">
           <mat-icon>search_off</mat-icon>
@@ -524,21 +519,56 @@ import { ImportExportService } from '../import-export/import-export.service';
         opacity: 1;
       }
 
-      .row-menu-trigger {
-        opacity: 0;
-        transition: opacity 0.2s;
+      .context-menu {
+        position: fixed;
+        background: linear-gradient(135deg, #1e1e2e 0%, #252536 100%);
+        border-radius: 8px;
+        box-shadow:
+          0 8px 32px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(255, 255, 255, 0.1);
+        padding: 4px 0;
+        min-width: 180px;
+        z-index: 1000;
       }
 
-      tr:hover .row-menu-trigger {
-        opacity: 1;
+      .context-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 10px 16px;
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 13px;
+        cursor: pointer;
+        text-align: left;
+        transition: background 0.15s;
       }
 
-      .delete-item {
+      .context-menu-item:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .context-menu-item mat-icon {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .context-menu-item.delete {
         color: #f44336;
       }
 
-      .delete-item mat-icon {
+      .context-menu-item.delete mat-icon {
         color: #f44336;
+      }
+
+      .context-menu-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 4px 0;
       }
 
       .empty-state {
@@ -605,9 +635,8 @@ export class ResultsTableComponent {
     return this.queryStore.columns().map((c) => c.path);
   });
 
-  allColumns = computed(() => {
-    return [...this.displayedColumns(), 'actions'];
-  });
+  // Context menu state
+  contextMenu = signal<{ x: number; y: number; doc: CosmosDocument } | null>(null);
 
   getColumnLabel(path: string): string {
     const column = this.queryStore.columns().find((c) => c.path === path);
@@ -934,6 +963,35 @@ export class ResultsTableComponent {
       const wrapper = document.querySelector('.table-wrapper') as HTMLElement;
       wrapper?.focus();
     }, 10);
+  }
+
+  // Context menu handlers
+  onRowContextMenu(event: MouseEvent, doc: CosmosDocument) {
+    event.preventDefault();
+    this.contextMenu.set({
+      x: event.clientX,
+      y: event.clientY,
+      doc,
+    });
+  }
+
+  closeContextMenu() {
+    this.contextMenu.set(null);
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.context-menu')) {
+      this.closeContextMenu();
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey() {
+    if (this.contextMenu()) {
+      this.closeContextMenu();
+    }
   }
 
   onSaveDocument(doc: CosmosDocument) {
