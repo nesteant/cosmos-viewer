@@ -11,7 +11,7 @@ interface ConnectionData {
 }
 
 interface LayoutPreferences {
-  sidebarSize: number;
+  sidebarWidth: number;
   queryPanelSize: number;
   sidebarCollapsed: boolean;
   queryPanelCollapsed: boolean;
@@ -72,7 +72,7 @@ interface StoreSchema {
 }
 
 const DEFAULT_LAYOUT: LayoutPreferences = {
-  sidebarSize: 20,
+  sidebarWidth: 280,
   queryPanelSize: 25,
   sidebarCollapsed: false,
   queryPanelCollapsed: false,
@@ -113,7 +113,7 @@ const store = new Store<StoreSchema>({
       type: 'object',
       default: DEFAULT_LAYOUT,
       properties: {
-        sidebarSize: { type: 'number' },
+        sidebarWidth: { type: 'number' },
         queryPanelSize: { type: 'number' },
         sidebarCollapsed: { type: 'boolean' },
         queryPanelCollapsed: { type: 'boolean' },

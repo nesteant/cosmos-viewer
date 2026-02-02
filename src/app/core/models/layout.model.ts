@@ -4,8 +4,8 @@
  */
 
 export interface LayoutPreferences {
-  /** Sidebar width as percentage (0-100) */
-  sidebarSize: number;
+  /** Sidebar width in pixels */
+  sidebarWidth: number;
 
   /** Query panel height as percentage of main area (0-100) */
   queryPanelSize: number;
@@ -18,7 +18,7 @@ export interface LayoutPreferences {
 }
 
 export const DEFAULT_LAYOUT_PREFERENCES: LayoutPreferences = {
-  sidebarSize: 20, // 20% of total width
+  sidebarWidth: 280, // pixels
   queryPanelSize: 25, // 25% of main area height
   sidebarCollapsed: false,
   queryPanelCollapsed: false,

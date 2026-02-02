@@ -172,3 +172,20 @@ body {
 .as-split-vertical > .as-split-gutter {
   cursor: row-resize;
 }
+
+// Mac window drag - make all interactive elements non-draggable
+button,
+input,
+select,
+textarea,
+a,
+[role="button"],
+mat-icon,
+.mat-mdc-tab,
+.mat-mdc-button,
+.mat-mdc-icon-button,
+.mat-mdc-menu-trigger,
+.mat-mdc-checkbox,
+.as-split-gutter {
+  -webkit-app-region: no-drag;
+}

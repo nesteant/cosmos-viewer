@@ -29,20 +29,30 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
     TabBarComponent,
   ],
   template: `
-    <as-split
-      direction="horizontal"
-      class="explorer-layout"
-      [gutterSize]="3"
-      (dragEnd)="onHorizontalDragEnd($event)"
-    >
-      <!-- Sidebar -->
-      <as-split-area
-        [size]="sidebarSize()"
-        [minSize]="sidebarCollapsed() ? 0 : 10"
-        [maxSize]="40"
-        [visible]="!sidebarCollapsed()"
-      >
-        <aside class="explorer-sidebar">
+    <div class="explorer-layout">
+      <!-- Sidebar (collapsible to icon strip) -->
+      <aside class="explorer-sidebar" [class.collapsed]="sidebarCollapsed()">
+        @if (sidebarCollapsed()) {
+          <!-- Collapsed: narrow icon strip -->
+          <div class="sidebar-collapsed">
+            <button
+              mat-icon-button
+              matTooltip="Expand Sidebar"
+              (click)="toggleSidebar()"
+              class="expand-btn"
+            >
+              <mat-icon>chevron_right</mat-icon>
+            </button>
+            <!-- Status icons area (for future use) -->
+            <div class="status-icons">
+              <mat-icon
+                class="status-icon connected"
+                matTooltip="Connected"
+              >cloud_done</mat-icon>
+            </div>
+          </div>
+        } @else {
+          <!-- Expanded: full sidebar -->
           <div class="sidebar-header">
             <button
               mat-icon-button
@@ -55,34 +65,31 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
               {{ connectionsStore.selectedConnection()?.name ?? 'Connection' }}
             </span>
             <span class="spacer"></span>
-            <app-collapse-button
-              direction="horizontal"
-              label="sidebar"
-              [collapsed]="false"
-              (toggle)="toggleSidebar()"
-            />
+            <button
+              mat-icon-button
+              matTooltip="Collapse Sidebar"
+              (click)="toggleSidebar()"
+              class="collapse-btn"
+            >
+              <mat-icon>chevron_left</mat-icon>
+            </button>
           </div>
           <app-database-tree
             (containerSelected)="onContainerSelected($event)"
           />
-        </aside>
-      </as-split-area>
+        }
+      </aside>
+
+      <!-- Resizer -->
+      @if (!sidebarCollapsed()) {
+        <div
+          class="sidebar-resizer"
+          (mousedown)="onResizerMouseDown($event)"
+        ></div>
+      }
 
       <!-- Main area -->
-      <as-split-area [size]="mainAreaSize()">
-        <div class="main-content">
-          <!-- Collapsed sidebar indicator -->
-          @if (sidebarCollapsed()) {
-            <div class="collapsed-sidebar-indicator">
-              <app-collapse-button
-                direction="horizontal"
-                label="sidebar"
-                [collapsed]="true"
-                (toggle)="toggleSidebar()"
-              />
-            </div>
-          }
-
+      <div class="main-content">
           <!-- Tab bar -->
           @if (explorerStore.hasTabs()) {
             <app-tab-bar
@@ -152,9 +159,8 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
               <p>Choose a database and container from the tree to start querying</p>
             </div>
           }
-        </div>
-      </as-split-area>
-    </as-split>
+      </div>
+    </div>
   `,
   styles: [
     `
@@ -165,14 +171,123 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
       }
 
       .explorer-layout {
+        display: flex;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      /* Sidebar */
+      .explorer-sidebar {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: rgba(0, 0, 0, 0.15);
+        overflow: hidden;
+        transition: width 0.15s ease;
+        width: var(--sidebar-width, 280px);
+        min-width: var(--sidebar-width, 280px);
+      }
+
+      .explorer-sidebar.collapsed {
+        width: 48px;
+        min-width: 48px;
+      }
+
+      /* Collapsed sidebar strip */
+      .sidebar-collapsed {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 4px 0;
+        gap: 4px;
         height: 100%;
       }
 
+      .sidebar-collapsed .expand-btn {
+        margin-bottom: 4px;
+      }
+
+      .status-icons {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 8px;
+        gap: 8px;
+      }
+
+      .status-icon {
+        font-size: 20px;
+        width: 20px;
+        height: 20px;
+        opacity: 0.6;
+      }
+
+      .status-icon.connected {
+        color: #4caf50;
+        opacity: 1;
+      }
+
+      /* Expanded sidebar */
+      .sidebar-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        flex-shrink: 0;
+      }
+
+      .connection-name {
+        font-size: 14px;
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .spacer {
+        flex: 1;
+      }
+
+      .collapse-btn,
+      .expand-btn {
+        opacity: 0.7;
+        transition: opacity 0.15s;
+      }
+
+      .collapse-btn:hover,
+      .expand-btn:hover {
+        opacity: 1;
+      }
+
+      /* Sidebar resizer */
+      .sidebar-resizer {
+        width: 4px;
+        cursor: col-resize;
+        background: transparent;
+        transition: background 0.15s;
+        flex-shrink: 0;
+      }
+
+      .sidebar-resizer:hover {
+        background: rgba(187, 134, 252, 0.3);
+      }
+
+      .sidebar-resizer:active {
+        background: rgba(187, 134, 252, 0.5);
+      }
+
+      /* Main content */
       .main-content {
+        flex: 1;
         display: flex;
         flex-direction: column;
         height: 100%;
         overflow: hidden;
+        min-width: 0;
       }
 
       .split-wrapper {
@@ -183,34 +298,6 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
 
       .split-wrapper as-split {
         height: 100%;
-      }
-
-      .explorer-sidebar {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        background: rgba(0, 0, 0, 0.1);
-        overflow: hidden;
-      }
-
-      .sidebar-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-      }
-
-      .connection-name {
-        font-size: 14px;
-        font-weight: 500;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .spacer {
-        flex: 1;
       }
 
       .query-panel {
@@ -241,16 +328,6 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
         display: flex;
         flex-direction: column;
         overflow: hidden;
-      }
-
-      .collapsed-sidebar-indicator {
-        position: absolute;
-        top: 38px;
-        left: 4px;
-        z-index: 100;
-        background: rgba(0, 0, 0, 0.4);
-        border-radius: 4px;
-        padding: 2px;
       }
 
       .collapsed-query-indicator {
@@ -311,17 +388,19 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   private notificationService = inject(NotificationService);
 
   // Layout state
-  sidebarSize = signal(20);
+  sidebarWidth = signal(280); // pixels
   queryPanelSize = signal(25);
   sidebarCollapsed = signal(false);
   queryPanelCollapsed = signal(false);
 
   // Store previous sizes for restore after collapse
-  private lastSidebarSize = 20;
+  private lastSidebarWidth = 280;
   private lastQueryPanelSize = 25;
 
+  // Resizing state
+  private isResizing = false;
+
   // Computed sizes
-  mainAreaSize = computed(() => 100 - this.sidebarSize());
   resultsPanelSize = computed(() => 100 - this.queryPanelSize());
 
   constructor() {
@@ -340,14 +419,16 @@ export class ExplorerComponent implements OnInit, OnDestroy {
 
     // Load layout preferences
     const prefs = await this.layoutService.loadPreferences();
-    this.sidebarSize.set(prefs.sidebarSize);
+    this.sidebarWidth.set(prefs.sidebarWidth ?? 280);
     this.queryPanelSize.set(prefs.queryPanelSize);
     this.sidebarCollapsed.set(prefs.sidebarCollapsed);
     this.queryPanelCollapsed.set(prefs.queryPanelCollapsed);
 
     // Store for restore
     if (!prefs.sidebarCollapsed) {
-      this.lastSidebarSize = prefs.sidebarSize;
+      this.lastSidebarWidth = prefs.sidebarWidth ?? 280;
+      // Set CSS variable for sidebar width
+      document.documentElement.style.setProperty('--sidebar-width', `${this.sidebarWidth()}px`);
     }
     if (!prefs.queryPanelCollapsed) {
       this.lastQueryPanelSize = prefs.queryPanelSize;
@@ -467,14 +548,36 @@ export class ExplorerComponent implements OnInit, OnDestroy {
     });
   }
 
-  onHorizontalDragEnd(event: SplitGutterInteractionEvent) {
-    const sizes = event.sizes;
-    if (sizes && sizes.length > 0) {
-      const sidebarSize = typeof sizes[0] === 'number' ? sizes[0] : 20;
-      this.sidebarSize.set(sidebarSize);
-      this.lastSidebarSize = sidebarSize;
-      this.layoutService.updatePreferences({ sidebarSize });
-    }
+  onResizerMouseDown(event: MouseEvent) {
+    event.preventDefault();
+    this.isResizing = true;
+
+    const startX = event.clientX;
+    const startWidth = this.sidebarWidth();
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!this.isResizing) return;
+
+      const deltaX = e.clientX - startX;
+      const newWidth = Math.max(180, Math.min(500, startWidth + deltaX));
+      this.sidebarWidth.set(newWidth);
+
+      // Update CSS variable
+      document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+    };
+
+    const onMouseUp = () => {
+      if (this.isResizing) {
+        this.isResizing = false;
+        this.lastSidebarWidth = this.sidebarWidth();
+        this.layoutService.updatePreferences({ sidebarWidth: this.sidebarWidth() });
+      }
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
   }
 
   onVerticalDragEnd(event: SplitGutterInteractionEvent) {
@@ -491,16 +594,13 @@ export class ExplorerComponent implements OnInit, OnDestroy {
     const collapsed = !this.sidebarCollapsed();
     this.sidebarCollapsed.set(collapsed);
 
-    if (collapsed) {
-      this.lastSidebarSize = this.sidebarSize();
-      this.sidebarSize.set(0);
-    } else {
-      this.sidebarSize.set(this.lastSidebarSize || 20);
+    if (!collapsed) {
+      // Restore CSS variable when expanding
+      document.documentElement.style.setProperty('--sidebar-width', `${this.lastSidebarWidth}px`);
     }
 
     this.layoutService.updatePreferences({
       sidebarCollapsed: collapsed,
-      sidebarSize: this.sidebarSize(),
     });
   }
 

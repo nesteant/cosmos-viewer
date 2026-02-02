@@ -67,13 +67,13 @@ export interface ElectronAPI {
   };
   layout: {
     getPreferences: () => Promise<{
-      sidebarSize: number;
+      sidebarWidth: number;
       queryPanelSize: number;
       sidebarCollapsed: boolean;
       queryPanelCollapsed: boolean;
     }>;
     savePreferences: (prefs: {
-      sidebarSize: number;
+      sidebarWidth: number;
       queryPanelSize: number;
       sidebarCollapsed: boolean;
       queryPanelCollapsed: boolean;
