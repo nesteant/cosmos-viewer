@@ -1,5 +1,11 @@
 @use '@angular/material' as mat;
 
+// Local JetBrains Mono fonts (no CDN dependency)
+@import '@fontsource/jetbrains-mono/300.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+
 // Custom dark theme
 $cosmos-primary: mat.m2-define-palette(mat.$m2-indigo-palette);
 $cosmos-accent: mat.m2-define-palette(mat.$m2-cyan-palette);
@@ -23,10 +29,18 @@ $cosmos-theme: mat.m2-define-dark-theme((
 }
 
 // Global styles
+* {
+  font-family: 'JetBrains Mono', monospace;
+}
+
 html, body {
   height: 100%;
   margin: 0;
-  font-family: Roboto, "Helvetica Neue", sans-serif;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+button, input, textarea, select {
+  font-family: inherit;
 }
 
 body {

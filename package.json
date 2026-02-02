@@ -36,6 +36,7 @@
     "@angular/platform-browser-dynamic": "^19.0.0",
     "@angular/router": "^19.0.0",
     "@azure/cosmos": "^4.2.0",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@ngrx/operators": "^19.0.0",
     "@ngrx/signals": "^19.0.0",
     "angular-split": "^20.0.0",
