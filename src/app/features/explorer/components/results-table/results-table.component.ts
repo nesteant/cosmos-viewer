@@ -114,7 +114,7 @@ import { ImportExportService } from '../import-export/import-export.service';
       />
 
       @if (queryStore.hasDocuments()) {
-        <div class="table-wrapper">
+        <div class="table-wrapper" tabindex="0" #tableWrapper>
           <table mat-table [dataSource]="queryStore.documents()">
             @for (column of displayedColumns(); track column) {
               <ng-container [matColumnDef]="column">
@@ -138,9 +138,11 @@ import { ImportExportService } from '../import-export/import-export.service';
                   *matCellDef="let doc"
                   [class.dirty]="queryStore.isFieldDirty(doc.id, column)"
                   [class.editable]="!isSystemField(column)"
+                  [class.cell-focused]="isCellFocused(doc.id, column)"
                   [style.width.px]="columnWidths()[column]"
                   [style.min-width.px]="columnWidths()[column]"
                   [style.max-width.px]="columnWidths()[column]"
+                  (click)="onCellClick(doc.id, column, $event)"
                   (dblclick)="startEditing(doc, column)"
                 >
                   @if (editingCell?.docId === doc.id && editingCell?.path === column) {
@@ -151,8 +153,7 @@ import { ImportExportService } from '../import-export/import-export.service';
                         [value]="editingValue"
                         (input)="onEditInput($event)"
                         (blur)="onInputBlur(doc, column)"
-                        (keydown.enter)="finishEditing(doc, column)"
-                        (keydown.escape)="cancelEditing()"
+                        (keydown)="onEditKeydown($event, doc, column)"
                       />
                       <div class="type-chips">
                         @for (opt of applicableTypes; track opt.type) {
@@ -392,6 +393,16 @@ import { ImportExportService } from '../import-export/import-export.service';
         cursor: cell;
       }
 
+      td.cell-focused {
+        outline: 2px solid #bb86fc;
+        outline-offset: -2px;
+        background: rgba(187, 134, 252, 0.1);
+      }
+
+      .table-wrapper:focus {
+        outline: none;
+      }
+
       tr.dirty-row {
         background: rgba(255, 183, 77, 0.05);
       }
@@ -555,12 +566,17 @@ export class ResultsTableComponent {
   private importExportService = inject(ImportExportService);
 
   @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
+  @ViewChild('tableWrapper') tableWrapper!: ElementRef<HTMLDivElement>;
 
   container = input<ContainerInfo | null>(null);
 
   editingCell: { docId: string; path: string } | null = null;
   editingValue = '';
   importType: 'json' | 'csv' = 'json';
+  private isEditingCancelled = false;
+
+  // Keyboard navigation - track by docId and column path for mat-table compatibility
+  focusedCell = signal<{ docId: string; path: string } | null>(null);
 
   // Type selection for inline editing
   applicableTypes: TypeOption[] = [];
@@ -628,6 +644,120 @@ export class ResultsTableComponent {
     this.resizingColumn = null;
   }
 
+  // Keyboard navigation
+  @HostListener('keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent) {
+    // Skip if editing or if focus is in an input/textarea
+    if (this.editingCell) return;
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+    const focused = this.focusedCell();
+    const isNavKey = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape'].includes(event.key);
+    if (!focused && !isNavKey) return;
+
+    const docs = this.queryStore.documents();
+    const columns = this.displayedColumns();
+    if (docs.length === 0 || columns.length === 0) return;
+
+    // Get current position
+    let rowIndex = focused ? docs.findIndex(d => d.id === focused.docId) : -1;
+    let colIndex = focused ? columns.indexOf(focused.path) : -1;
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        if (!focused) {
+          this.focusedCell.set({ docId: docs[0].id, path: columns[0] });
+        } else if (rowIndex < docs.length - 1) {
+          this.focusedCell.set({ docId: docs[rowIndex + 1].id, path: columns[colIndex] });
+        }
+        this.scrollToFocusedCell();
+        break;
+
+      case 'ArrowUp':
+        event.preventDefault();
+        if (focused && rowIndex > 0) {
+          this.focusedCell.set({ docId: docs[rowIndex - 1].id, path: columns[colIndex] });
+          this.scrollToFocusedCell();
+        }
+        break;
+
+      case 'ArrowRight':
+        event.preventDefault();
+        if (!focused) {
+          this.focusedCell.set({ docId: docs[0].id, path: columns[0] });
+        } else if (colIndex < columns.length - 1) {
+          this.focusedCell.set({ docId: docs[rowIndex].id, path: columns[colIndex + 1] });
+        }
+        this.scrollToFocusedCell();
+        break;
+
+      case 'ArrowLeft':
+        event.preventDefault();
+        if (focused && colIndex > 0) {
+          this.focusedCell.set({ docId: docs[rowIndex].id, path: columns[colIndex - 1] });
+          this.scrollToFocusedCell();
+        }
+        break;
+
+      case 'Enter':
+        event.preventDefault();
+        if (focused) {
+          const doc = docs.find(d => d.id === focused.docId);
+          if (doc) {
+            this.startEditing(doc, focused.path);
+          }
+        }
+        break;
+
+      case 'Escape':
+        event.preventDefault();
+        this.focusedCell.set(null);
+        break;
+    }
+  }
+
+  private scrollToFocusedCell() {
+    setTimeout(() => {
+      const focusedEl = document.querySelector('.cell-focused') as HTMLElement;
+      const tableWrapper = document.querySelector('.table-wrapper') as HTMLElement;
+
+      if (!focusedEl || !tableWrapper) return;
+
+      const cellRect = focusedEl.getBoundingClientRect();
+      const wrapperRect = tableWrapper.getBoundingClientRect();
+
+      // Check horizontal scroll
+      if (cellRect.right > wrapperRect.right) {
+        // Cell is off to the right - scroll right
+        tableWrapper.scrollLeft += (cellRect.right - wrapperRect.right) + 20;
+      } else if (cellRect.left < wrapperRect.left) {
+        // Cell is off to the left - scroll left
+        tableWrapper.scrollLeft -= (wrapperRect.left - cellRect.left) + 20;
+      }
+
+      // Check vertical scroll
+      if (cellRect.bottom > wrapperRect.bottom) {
+        // Cell is below - scroll down
+        tableWrapper.scrollTop += (cellRect.bottom - wrapperRect.bottom) + 20;
+      } else if (cellRect.top < wrapperRect.top) {
+        // Cell is above - scroll up
+        tableWrapper.scrollTop -= (wrapperRect.top - cellRect.top) + 20;
+      }
+    });
+  }
+
+  onCellClick(docId: string, path: string, event: MouseEvent) {
+    // Don't interfere with double-click for editing
+    this.focusedCell.set({ docId, path });
+  }
+
+  isCellFocused(docId: string, path: string): boolean {
+    const focused = this.focusedCell();
+    return focused?.docId === docId && focused?.path === path;
+  }
+
   isSystemField(path: string): boolean {
     return isSystemField(path);
   }
@@ -662,10 +792,15 @@ export class ResultsTableComponent {
     this.updateApplicableTypes(this.editingValue, false);
     this.selectedType = this.getTypeFromValue(value);
 
-    setTimeout(() => {
-      const input = document.querySelector('.cell-input') as HTMLInputElement;
-      input?.focus();
-      input?.select();
+    // Use requestAnimationFrame to ensure DOM is updated, then focus
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const input = document.querySelector('.cell-input') as HTMLInputElement;
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }, 0);
     });
   }
 
@@ -673,6 +808,18 @@ export class ResultsTableComponent {
     const input = event.target as HTMLInputElement;
     this.editingValue = input.value;
     this.updateApplicableTypes(this.editingValue);
+  }
+
+  onEditKeydown(event: KeyboardEvent, doc: CosmosDocument, column: string) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.finishEditing(doc, column);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelEditing();
+    }
   }
 
   updateApplicableTypes(value: string, preserveSelection = true) {
@@ -722,6 +869,11 @@ export class ResultsTableComponent {
   onInputBlur(doc: CosmosDocument, column: string) {
     // Small delay to allow chip clicks to register before blur
     setTimeout(() => {
+      // Skip if editing was explicitly cancelled
+      if (this.isEditingCancelled) {
+        this.isEditingCancelled = false;
+        return;
+      }
       if (this.editingCell?.docId === doc.id && this.editingCell?.path === column) {
         this.finishEditing(doc, column);
       }
@@ -765,11 +917,23 @@ export class ResultsTableComponent {
 
     this.editingCell = null;
     this.applicableTypes = [];
+    // Refocus table wrapper for keyboard navigation
+    this.refocusTable();
   }
 
   cancelEditing() {
+    this.isEditingCancelled = true;
     this.editingCell = null;
     this.applicableTypes = [];
+    // Refocus table wrapper for keyboard navigation
+    this.refocusTable();
+  }
+
+  private refocusTable() {
+    setTimeout(() => {
+      const wrapper = document.querySelector('.table-wrapper') as HTMLElement;
+      wrapper?.focus();
+    }, 10);
   }
 
   onSaveDocument(doc: CosmosDocument) {

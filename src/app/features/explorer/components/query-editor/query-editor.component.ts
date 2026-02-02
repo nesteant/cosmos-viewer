@@ -338,6 +338,32 @@ export class QueryEditorComponent implements OnInit {
       2048 | 1024 | 36, // CtrlCmd + Shift + KeyF
       () => this.formatQuery()
     );
+
+    // Override toggle line comment to move cursor to next line after
+    editor.addAction({
+      id: 'comment-line-and-move',
+      label: 'Toggle Line Comment and Move Down',
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash,
+      ],
+      run: (ed: any) => {
+        const action = ed.getAction('editor.action.commentLine');
+        if (action) {
+          action.run().then(() => {
+            const position = ed.getPosition();
+            if (position) {
+              const lineCount = ed.getModel()?.getLineCount() || 0;
+              if (position.lineNumber < lineCount) {
+                ed.setPosition({
+                  lineNumber: position.lineNumber + 1,
+                  column: position.column
+                });
+              }
+            }
+          });
+        }
+      }
+    });
   }
 
   async onExecute() {
