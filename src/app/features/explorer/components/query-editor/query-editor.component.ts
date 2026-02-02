@@ -229,6 +229,7 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
         align-items: center;
         gap: 16px;
         padding: 4px 12px;
+        padding-right: 48px; /* Space for collapse button */
         background: rgba(0, 0, 0, 0.3);
         font-size: 11px;
         color: rgba(255, 255, 255, 0.5);
