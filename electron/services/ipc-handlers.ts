@@ -72,6 +72,15 @@ export function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('cosmos:analyze-query', async (_, params) => {
+    try {
+      return await cosmosService.analyzeQuery(params);
+    } catch (error: any) {
+      console.error('Failed to analyze query:', error);
+      throw error;
+    }
+  });
+
   ipcMain.handle('cosmos:create-document', async (_, params) => {
     try {
       return await cosmosService.createDocument(params);

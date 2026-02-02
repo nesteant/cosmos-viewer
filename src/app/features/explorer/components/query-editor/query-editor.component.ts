@@ -1,6 +1,7 @@
 import { Component, inject, input, output, OnInit, signal, computed, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
@@ -11,6 +12,7 @@ import { NotificationService } from '@core/services';
 import { registerCosmosSQL, updateSchemaFromDocuments } from '@core/utils/cosmossql-monaco';
 import { ConnectionsStore } from '../../../connections/store';
 import { ExplorerStore, QueryStore } from '../../store';
+import { QueryAnalyzerDialogComponent } from '../query-analyzer/query-analyzer-dialog.component';
 
 interface QueryTemplate {
   name: string;
@@ -78,6 +80,15 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
 
           <button
             mat-icon-button
+            (click)="analyzeQuery()"
+            matTooltip="Analyze Query (Ctrl+Shift+A)"
+            [disabled]="!query.trim() || !container()"
+          >
+            <mat-icon>analytics</mat-icon>
+          </button>
+
+          <button
+            mat-icon-button
             (click)="clearQuery()"
             matTooltip="Clear"
             [disabled]="!query.trim()"
@@ -128,7 +139,7 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
           </span>
         }
         <span class="spacer"></span>
-        <span class="hint">Ctrl+Enter to execute</span>
+        <span class="hint">Ctrl+Enter: Execute | Ctrl+Shift+A: Analyze</span>
       </div>
     </div>
   `,
@@ -253,6 +264,7 @@ export class QueryEditorComponent implements OnInit {
   private readonly connectionsStore = inject(ConnectionsStore);
   private readonly explorerStore = inject(ExplorerStore);
   private readonly notificationService = inject(NotificationService);
+  private readonly dialog = inject(MatDialog);
 
   container = input<ContainerInfo | null>(null);
   sidebarCollapsed = input(false);
@@ -337,6 +349,12 @@ export class QueryEditorComponent implements OnInit {
     editor.addCommand(
       2048 | 1024 | 36, // CtrlCmd + Shift + KeyF
       () => this.formatQuery()
+    );
+
+    // Add Ctrl+Shift+A for analyze
+    editor.addCommand(
+      2048 | 1024 | 31, // CtrlCmd + Shift + KeyA
+      () => this.analyzeQuery()
     );
 
     // Override toggle line comment to move cursor to next line after
@@ -429,6 +447,29 @@ export class QueryEditorComponent implements OnInit {
     this.query = this.formatSQL(this.query);
     this.queryStore.setQuery(this.query);
     this.queryChange.emit(this.query);
+  }
+
+  analyzeQuery() {
+    const cont = this.container();
+    if (!cont || !this.query.trim()) return;
+
+    const activeTab = this.explorerStore.activeTab();
+    const connectionId = activeTab?.connectionId || sessionStorage.getItem('activeConnectionId');
+
+    if (!connectionId) {
+      this.notificationService.error('No active connection. Please reconnect.');
+      return;
+    }
+
+    this.dialog.open(QueryAnalyzerDialogComponent, {
+      width: '700px',
+      maxHeight: '80vh',
+      data: {
+        query: this.query,
+        connectionId,
+        container: cont,
+      },
+    });
   }
 
   clearQuery() {

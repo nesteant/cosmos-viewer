@@ -49,6 +49,17 @@ export interface ElectronAPI {
       documentId: string;
       partitionKey: any;
     }) => Promise<void>;
+    analyzeQuery: (params: {
+      connectionId: string;
+      databaseId: string;
+      containerId: string;
+      query: string;
+    }) => Promise<{
+      indexMetrics: string;
+      requestCharge: number;
+      executionTimeMs: number;
+      retrievedDocumentCount: number;
+    }>;
   };
   storage: {
     getConnections: () => Promise<any[]>;
@@ -110,6 +121,8 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('cosmos:update-document', params),
     deleteDocument: (params) =>
       ipcRenderer.invoke('cosmos:delete-document', params),
+    analyzeQuery: (params) =>
+      ipcRenderer.invoke('cosmos:analyze-query', params),
   },
   storage: {
     getConnections: () => ipcRenderer.invoke('storage:get-connections'),

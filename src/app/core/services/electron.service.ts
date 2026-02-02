@@ -9,6 +9,8 @@ import {
   CosmosDocument,
   LayoutPreferences,
   TabsPreferences,
+  AnalyzeQueryParams,
+  AnalyzeQueryResult,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -74,6 +76,10 @@ export class ElectronService {
   // Query operations
   async executeQuery(params: QueryParams): Promise<QueryResult> {
     return this.api.cosmos.executeQuery(params);
+  }
+
+  async analyzeQuery(params: AnalyzeQueryParams): Promise<AnalyzeQueryResult> {
+    return this.api.cosmos.analyzeQuery(params);
   }
 
   // Document operations

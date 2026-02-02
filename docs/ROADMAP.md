@@ -21,6 +21,8 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 - ✅ **Query Persistence** - Queries saved per tab across refreshes/restarts
 - ✅ **SQL Formatter** - Format query with comment preservation
 - ✅ **JetBrains Mono Font** - Local font (no CDN dependency)
+- ✅ **Column Highlighting** - Key (id), partition key, and system columns visually distinguished
+- ✅ **Query Analyzer** - Query explanation, optimization hints, index metrics with Ctrl+Shift+A
 
 ---
 
@@ -52,11 +54,6 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 - Organize in folders
 - Quick access from sidebar or command palette
 - Share/export queries
-
-### 2.3 Query Execution Plan
-- Visual representation of query plan
-- Index usage indicators
-- Optimization suggestions
 
 ---
 
