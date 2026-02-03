@@ -341,6 +341,37 @@ interface MongoExplainData {
         padding: 0 !important;
         min-height: 300px;
         max-height: 60vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      mat-dialog-content mat-tab-group {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      mat-dialog-content ::ng-deep .mat-mdc-tab-header {
+        flex-shrink: 0;
+      }
+
+      mat-dialog-content ::ng-deep .mat-mdc-tab-body-wrapper {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      mat-dialog-content ::ng-deep .mat-mdc-tab-body {
+        height: 100%;
+        overflow: hidden;
+      }
+
+      mat-dialog-content ::ng-deep .mat-mdc-tab-body-content {
+        height: 100%;
+        overflow: auto;
       }
 
       .loading-state,
@@ -557,6 +588,7 @@ interface MongoExplainData {
         padding: 12px 16px;
         background: rgba(0, 0, 0, 0.2);
         border-top: 1px solid rgba(255, 255, 255, 0.08);
+        flex-shrink: 0;
       }
 
       .stat {

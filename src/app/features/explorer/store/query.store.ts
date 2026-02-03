@@ -354,6 +354,25 @@ export const QueryStore = signalStore(
         }
       },
 
+      /**
+       * Execute a partial aggregation pipeline (for stage-by-stage preview)
+       */
+      async executePartialPipeline(
+        container: ContainerInfo,
+        connectionId: string,
+        partialPipelineJson: string
+      ): Promise<{ documents: CosmosDocument[] }> {
+        const result = await electronService.executeQuery({
+          connectionId,
+          databaseId: container.databaseId,
+          containerId: container.id,
+          query: partialPipelineJson,
+          pageSize: 10, // Limit preview to 10 docs
+        });
+
+        return { documents: result.documents };
+      },
+
       updateDocumentField(documentId: string, path: string, value: any) {
         const tabId = store.activeTabId();
         if (!tabId) return;

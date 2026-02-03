@@ -1,4 +1,4 @@
-import { Component, inject, input, output, OnInit, signal, computed, effect } from '@angular/core';
+import { Component, inject, input, output, OnInit, signal, computed, effect, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
@@ -55,6 +55,8 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
     : SQL_TEMPLATES;
 }
 
+import { PipelineVisualizerComponent } from '../pipeline-visualizer/pipeline-visualizer.component';
+
 @Component({
   selector: 'app-query-editor',
   standalone: true,
@@ -66,6 +68,7 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
     MatProgressSpinnerModule,
     MatTooltipModule,
     MonacoEditorModule,
+    PipelineVisualizerComponent,
   ],
   template: `
     <div class="query-editor">
@@ -109,6 +112,17 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
             <mat-icon>analytics</mat-icon>
           </button>
 
+          @if (isMongoDB()) {
+            <button
+              mat-icon-button
+              (click)="toggleVisualMode()"
+              [matTooltip]="visualMode() ? 'Switch to Text Editor' : 'Switch to Visual Pipeline'"
+              [class.active]="visualMode()"
+            >
+              <mat-icon>{{ visualMode() ? 'code' : 'account_tree' }}</mat-icon>
+            </button>
+          }
+
           <button
             mat-icon-button
             (click)="clearQuery()"
@@ -135,13 +149,24 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
         </div>
       </div>
 
-      <ngx-monaco-editor
-        class="editor"
-        [options]="editorOptions"
-        [(ngModel)]="query"
-        (ngModelChange)="onQueryChange($event)"
-        (onInit)="onEditorInit($event)"
-      ></ngx-monaco-editor>
+      @if (visualMode() && isMongoDB()) {
+        <app-pipeline-visualizer
+          class="editor"
+          [query]="query"
+          [isMainQueryExecuting]="isLoading()"
+          (runToStageRequest)="runPipelineToStage($event)"
+          (pipelineChange)="onPipelineChange($event)"
+          #pipelineVisualizer
+        ></app-pipeline-visualizer>
+      } @else {
+        <ngx-monaco-editor
+          class="editor"
+          [options]="editorOptions"
+          [(ngModel)]="query"
+          (ngModelChange)="onQueryChange($event)"
+          (onInit)="onEditorInit($event)"
+        ></ngx-monaco-editor>
+      }
 
       <div class="status-bar">
         @if (queryStore.executionTime() !== null) {
@@ -215,6 +240,11 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
         gap: 4px;
       }
 
+      .toolbar-actions button.active {
+        background: rgba(187, 134, 252, 0.2);
+        color: #bb86fc;
+      }
+
       .execute-btn {
         margin-left: 8px;
       }
@@ -246,6 +276,10 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
         flex: 1;
         min-height: 0;
         overflow: hidden;
+      }
+
+      app-pipeline-visualizer.editor {
+        overflow: auto;
       }
 
       .status-bar {
@@ -315,9 +349,21 @@ export class QueryEditorComponent implements OnInit {
   // Templates based on provider type
   templates = computed(() => getTemplatesForProvider(this.activeProviderType()));
 
+  // Check if current provider is MongoDB
+  isMongoDB = computed(() => {
+    const pt = this.activeProviderType();
+    return pt === 'cosmos-mongo' || pt === 'mongodb';
+  });
+
+  // Visual mode toggle for pipeline visualization
+  visualMode = signal(false);
+
   // Loading state for reconnection
   private isReconnecting = signal(false);
   isLoading = computed(() => this.isReconnecting() || this.queryStore.isExecuting());
+
+  // Reference to pipeline visualizer
+  @ViewChild('pipelineVisualizer') pipelineVisualizer: PipelineVisualizerComponent | null = null;
 
   constructor() {
     // Sync query when active tab changes
@@ -565,9 +611,71 @@ export class QueryEditorComponent implements OnInit {
     this.editorInstance?.focus();
   }
 
+  toggleVisualMode() {
+    this.visualMode.update(v => !v);
+  }
+
+  /**
+   * Run the aggregation pipeline up to a specific stage
+   */
+  async runPipelineToStage(stageIndex: number) {
+    const cont = this.container();
+    if (!cont || !this.query.trim()) return;
+
+    try {
+      // Parse the full pipeline
+      const fullPipeline = JSON5.parse(this.query);
+      if (!Array.isArray(fullPipeline)) return;
+
+      // Create a partial pipeline up to and including the requested stage
+      const partialPipeline = fullPipeline.slice(0, stageIndex + 1);
+
+      // Execute the partial pipeline
+      const activeTab = this.explorerStore.activeTab();
+      const connectionId = activeTab?.connectionId || sessionStorage.getItem('activeConnectionId');
+      if (!connectionId) return;
+
+      const startTime = performance.now();
+      const result = await this.queryStore.executePartialPipeline(
+        cont,
+        connectionId,
+        JSON.stringify(partialPipeline)
+      );
+      const executionTime = Math.round(performance.now() - startTime);
+
+      // Update the visualizer with results
+      if (this.pipelineVisualizer) {
+        this.pipelineVisualizer.setStageResult(stageIndex, {
+          stageIndex,
+          documents: result.documents,
+          count: result.documents.length,
+          executionTimeMs: executionTime,
+        });
+      }
+    } catch (err: any) {
+      this.notificationService.error(`Failed to execute pipeline: ${err.message}`);
+      if (this.pipelineVisualizer) {
+        this.pipelineVisualizer.executingStage.set(null);
+      }
+    }
+  }
+
   onQueryChange(query: string) {
     this.queryStore.setQuery(query);
     this.queryChange.emit(query);
+    // Clear stage results when query changes
+    if (this.pipelineVisualizer) {
+      this.pipelineVisualizer.clearResults();
+    }
+  }
+
+  /**
+   * Handle pipeline changes from the visual editor
+   */
+  onPipelineChange(newPipeline: string) {
+    this.query = newPipeline;
+    this.queryStore.setQuery(newPipeline);
+    this.queryChange.emit(newPipeline);
   }
 
   private switchEditorLanguage(providerType: ProviderType): void {
