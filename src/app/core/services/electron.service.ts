@@ -39,7 +39,7 @@ export class ElectronService {
   // Connection operations
   async testConnection(
     providerType: ProviderType,
-    config: { endpoint: string; key: string }
+    config: { endpoint?: string; key?: string; connectionString?: string }
   ): Promise<ConnectionTestResult> {
     return this.api.db.testConnection({
       providerType,

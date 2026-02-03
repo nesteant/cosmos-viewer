@@ -11,8 +11,10 @@ import {
   ContainerInfo,
   TreeNode,
   TabState,
+  DatabaseConnection,
 } from '@core/models';
 import { ElectronService, NotificationService } from '@core/services';
+import { getDefaultQueryForProvider } from '@core/utils/query-utils';
 
 export interface ExplorerState {
   databases: DatabaseInfo[];
@@ -219,8 +221,12 @@ export const ExplorerStore = signalStore(
       },
 
       // Tab management methods
-      openTab(container: ContainerInfo, query = 'SELECT * FROM c'): string {
+      openTab(container: ContainerInfo, query?: string, connections?: DatabaseConnection[]): string {
         const connectionId = sessionStorage.getItem('activeConnectionId') ?? '';
+
+        // Determine default query based on provider type
+        const connection = connections?.find(c => c.id === connectionId);
+        const defaultQuery = query ?? getDefaultQueryForProvider(connection?.providerType ?? 'cosmos-sql');
 
         // Check if tab already exists for this container on this connection
         const existingTab = store
@@ -241,7 +247,7 @@ export const ExplorerStore = signalStore(
           containerName: container.name,
           databaseId: container.databaseId,
           partitionKeyPath: container.partitionKeyPath,
-          query,
+          query: defaultQuery,
         };
 
         patchState(store, {

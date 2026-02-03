@@ -26,9 +26,6 @@ import { DatabaseConnection, ProviderType } from '@core/models';
         <mat-card-subtitle>
           {{ getEndpointHost(connection().endpoint) }}
         </mat-card-subtitle>
-        <span class="provider-badge" [class]="'provider-' + connection().providerType">
-          {{ getProviderLabel(connection().providerType) }}
-        </span>
         <button
           mat-icon-button
           [matMenuTriggerFor]="menu"
@@ -41,6 +38,12 @@ import { DatabaseConnection, ProviderType } from '@core/models';
 
       <mat-card-content>
         <div class="connection-info">
+          <div class="info-item">
+            <mat-icon>dns</mat-icon>
+            <span class="provider-badge">
+              {{ getProviderLabel(connection().providerType) }}
+            </span>
+          </div>
           @if (connection().defaultDatabase) {
             <div class="info-item">
               <mat-icon>folder</mat-icon>
@@ -105,19 +108,7 @@ import { DatabaseConnection, ProviderType } from '@core/models';
       }
 
       .provider-badge {
-        position: absolute;
-        top: 8px;
-        right: 48px;
-        font-size: 10px;
-        font-weight: 600;
-        padding: 2px 6px;
-        border-radius: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      .provider-badge {
-        background: rgba(187, 134, 252, 0.2);
+        font-size: 12px;
         color: #bb86fc;
       }
 
@@ -206,9 +197,9 @@ export class ConnectionCardComponent {
   delete = output<DatabaseConnection>();
 
   private providerLabels: Record<ProviderType, string> = {
-    'cosmos-sql': 'Cosmos',
-    'cosmos-mongo': 'Cosmos',
-    'mongodb': 'Mongo',
+    'cosmos-sql': 'Cosmos SQL',
+    'cosmos-mongo': 'Cosmos Mongo',
+    'mongodb': 'MongoDB',
     'jdbc': 'JDBC',
   };
 

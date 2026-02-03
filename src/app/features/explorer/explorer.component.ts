@@ -6,6 +6,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
 import { ContainerInfo, TabState, ProviderType } from '@core/models';
 import { LayoutPreferencesService, NotificationService, TabsPersistenceService, TablePreferencesService } from '@core/services';
+import { getDefaultQueryForProvider } from '@core/utils/query-utils';
 import { CollapseButtonComponent } from '@shared/components';
 import { ConnectionsStore } from '../connections/store';
 import { ExplorerStore, QueryStore } from './store';
@@ -492,11 +493,15 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   }
 
   onContainerSelected(container: ContainerInfo) {
+    // Get default query based on provider type
+    const providerType = this.connectionsStore.selectedConnection()?.providerType ?? 'cosmos-sql';
+    const defaultQuery = getDefaultQueryForProvider(providerType);
+
     // Open tab for container (or activate existing)
-    const tabId = this.explorerStore.openTab(container);
+    const tabId = this.explorerStore.openTab(container, undefined, this.connectionsStore.connections());
 
     // Initialize query store for this tab
-    this.queryStore.initializeTab(tabId, 'SELECT * FROM c');
+    this.queryStore.initializeTab(tabId, defaultQuery);
     this.queryStore.setActiveTab(tabId);
 
     // Auto-execute query
@@ -617,9 +622,9 @@ export class ExplorerComponent implements OnInit, OnDestroy {
 
   getProviderLabel(providerType: ProviderType): string {
     const labels: Record<ProviderType, string> = {
-      'cosmos-sql': 'Cosmos',
-      'cosmos-mongo': 'Cosmos',
-      'mongodb': 'Mongo',
+      'cosmos-sql': 'Cosmos SQL',
+      'cosmos-mongo': 'Cosmos Mongo',
+      'mongodb': 'MongoDB',
       'jdbc': 'JDBC',
     };
     return labels[providerType] || providerType;

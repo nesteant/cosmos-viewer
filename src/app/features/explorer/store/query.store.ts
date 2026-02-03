@@ -112,8 +112,8 @@ export const QueryStore = signalStore(
     // Convenience accessors for active tab
     query: computed(() => {
       const tabId = store.activeTabId();
-      if (!tabId) return 'SELECT * FROM c';
-      return store.tabStates()[tabId]?.query ?? 'SELECT * FROM c';
+      if (!tabId) return '';
+      return store.tabStates()[tabId]?.query ?? '';
     }),
     documents: computed(() => {
       const tabId = store.activeTabId();

@@ -7,9 +7,11 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
-import { ContainerInfo } from '@core/models';
+import { ContainerInfo, ProviderType } from '@core/models';
 import { NotificationService } from '@core/services';
 import { registerCosmosSQL, updateSchemaFromDocuments } from '@core/utils/cosmossql-monaco';
+import { registerMongoDB, updateMongoSchemaFromDocuments } from '@core/utils/mongodb-monaco';
+import { getDefaultQueryForProvider, isQueryCompatibleWithProvider } from '@core/utils/query-utils';
 import { ConnectionsStore } from '../../../connections/store';
 import { ExplorerStore, QueryStore } from '../../store';
 import { QueryAnalyzerDialogComponent } from '../query-analyzer/query-analyzer-dialog.component';
@@ -20,7 +22,7 @@ interface QueryTemplate {
   query: string;
 }
 
-const QUERY_TEMPLATES: QueryTemplate[] = [
+const SQL_TEMPLATES: QueryTemplate[] = [
   { name: 'Select All', icon: 'select_all', query: 'SELECT * FROM c' },
   { name: 'Select Top 10', icon: 'filter_1', query: 'SELECT TOP 10 * FROM c' },
   { name: 'Select Top 100', icon: 'filter_2', query: 'SELECT TOP 100 * FROM c' },
@@ -32,6 +34,25 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
   { name: 'Order By', icon: 'sort', query: 'SELECT * FROM c ORDER BY c._ts DESC' },
   { name: 'Distinct Values', icon: 'difference', query: 'SELECT DISTINCT VALUE c.type FROM c' },
 ];
+
+const MONGO_TEMPLATES: QueryTemplate[] = [
+  { name: 'Find All', icon: 'select_all', query: '{}' },
+  { name: 'Find by ID', icon: 'key', query: '{ "_id": "your-id" }' },
+  { name: 'Find by Field', icon: 'search', query: '{ "fieldName": "value" }' },
+  { name: 'Find with Regex', icon: 'text_fields', query: '{ "name": { "$regex": "search", "$options": "i" } }' },
+  { name: 'Find in Array', icon: 'data_array', query: '{ "tags": { "$in": ["tag1", "tag2"] } }' },
+  { name: 'Find with AND', icon: 'join_inner', query: '{ "$and": [{ "field1": "value1" }, { "field2": "value2" }] }' },
+  { name: 'Find with OR', icon: 'join_full', query: '{ "$or": [{ "field1": "value1" }, { "field2": "value2" }] }' },
+  { name: 'Find Range', icon: 'date_range', query: '{ "field": { "$gte": 0, "$lte": 100 } }' },
+  { name: 'Field Exists', icon: 'check_circle', query: '{ "fieldName": { "$exists": true } }' },
+  { name: 'Nested Field', icon: 'account_tree', query: '{ "parent.child": "value" }' },
+];
+
+function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
+  return providerType === 'cosmos-mongo' || providerType === 'mongodb'
+    ? MONGO_TEMPLATES
+    : SQL_TEMPLATES;
+}
 
 @Component({
   selector: 'app-query-editor',
@@ -61,7 +82,7 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
             <mat-icon>library_books</mat-icon>
           </button>
           <mat-menu #templatesMenu="matMenu">
-            @for (template of templates; track template.name) {
+            @for (template of templates(); track template.name) {
               <button mat-menu-item (click)="applyTemplate(template)">
                 <mat-icon>{{ template.icon }}</mat-icon>
                 {{ template.name }}
@@ -78,14 +99,16 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
             <mat-icon>auto_fix_high</mat-icon>
           </button>
 
-          <button
-            mat-icon-button
-            (click)="analyzeQuery()"
-            matTooltip="Analyze Query (Ctrl+Shift+A)"
-            [disabled]="!query.trim() || !container()"
-          >
-            <mat-icon>analytics</mat-icon>
-          </button>
+          @if (activeProviderType() === 'cosmos-sql') {
+            <button
+              mat-icon-button
+              (click)="analyzeQuery()"
+              matTooltip="Analyze Query (Ctrl+Shift+A)"
+              [disabled]="!query.trim() || !container()"
+            >
+              <mat-icon>analytics</mat-icon>
+            </button>
+          }
 
           <button
             mat-icon-button
@@ -139,7 +162,13 @@ const QUERY_TEMPLATES: QueryTemplate[] = [
           </span>
         }
         <span class="spacer"></span>
-        <span class="hint">Ctrl+Enter: Execute | Ctrl+Shift+A: Analyze</span>
+        <span class="hint">
+          @if (activeProviderType() === 'cosmos-sql') {
+            Ctrl+Enter: Execute | Ctrl+Shift+A: Analyze
+          } @else {
+            Ctrl+Enter: Execute
+          }
+        </span>
       </div>
     </div>
   `,
@@ -272,10 +301,24 @@ export class QueryEditorComponent implements OnInit {
   execute = output<void>();
   queryChange = output<string>();
 
-  query = 'SELECT * FROM c';
-  templates = QUERY_TEMPLATES;
+  query = '';  // Will be set based on provider type
   private editorInstance: any;
   private lastActiveTabId: string | null = null;
+  private currentLanguage: string | null = null;
+  private lastProviderType: ProviderType | null = null;
+
+  // Provider type for the active connection
+  activeProviderType = computed((): ProviderType => {
+    const activeTab = this.explorerStore.activeTab();
+    const connectionId = activeTab?.connectionId || sessionStorage.getItem('activeConnectionId');
+    if (!connectionId) return 'cosmos-sql';
+
+    const connection = this.connectionsStore.connections().find(c => c.id === connectionId);
+    return connection?.providerType ?? 'cosmos-sql';
+  });
+
+  // Templates based on provider type
+  templates = computed(() => getTemplatesForProvider(this.activeProviderType()));
 
   // Loading state for reconnection
   private isReconnecting = signal(false);
@@ -285,11 +328,16 @@ export class QueryEditorComponent implements OnInit {
     // Sync query when active tab changes
     effect(() => {
       const activeTabId = this.explorerStore.activeTabId();
-      if (activeTabId && activeTabId !== this.lastActiveTabId) {
+      if (activeTabId !== this.lastActiveTabId) {
         this.lastActiveTabId = activeTabId;
-        // Load query for the new active tab
+        // Load query for the new active tab, or use default if no tab
         const tabQuery = this.queryStore.query();
-        if (tabQuery !== this.query) {
+        const providerType = this.activeProviderType();
+        if (!tabQuery || tabQuery.trim() === '') {
+          // No query stored, use provider-appropriate default
+          const defaultQuery = getDefaultQueryForProvider(providerType);
+          this.query = defaultQuery;
+        } else if (tabQuery !== this.query) {
           this.query = tabQuery;
         }
       }
@@ -298,7 +346,27 @@ export class QueryEditorComponent implements OnInit {
     // Update Monaco autocomplete when documents change
     effect(() => {
       const documents = this.queryStore.documents();
-      updateSchemaFromDocuments(documents);
+      const providerType = this.activeProviderType();
+      if (providerType === 'cosmos-mongo' || providerType === 'mongodb') {
+        updateMongoSchemaFromDocuments(documents);
+      } else {
+        updateSchemaFromDocuments(documents);
+      }
+    });
+
+    // Switch Monaco language and reset query when provider type changes
+    effect(() => {
+      const providerType = this.activeProviderType();
+      this.switchEditorLanguage(providerType);
+
+      // Reset query to default when provider type changes
+      if (this.lastProviderType !== null && this.lastProviderType !== providerType) {
+        const defaultQuery = getDefaultQueryForProvider(providerType);
+        this.query = defaultQuery;
+        this.queryStore.setQuery(defaultQuery);
+        this.queryChange.emit(defaultQuery);
+      }
+      this.lastProviderType = providerType;
     });
   }
 
@@ -321,23 +389,39 @@ export class QueryEditorComponent implements OnInit {
   };
 
   ngOnInit() {
-    this.query = this.queryStore.query();
+    const storedQuery = this.queryStore.query();
+    const providerType = this.activeProviderType();
+    const defaultQuery = getDefaultQueryForProvider(providerType);
+
+    // Use default if no stored query or if stored query is incompatible with provider
+    if (!storedQuery || storedQuery.trim() === '' || !isQueryCompatibleWithProvider(storedQuery, providerType)) {
+      this.query = defaultQuery;
+      this.queryStore.setQuery(defaultQuery);
+    } else {
+      this.query = storedQuery;
+    }
+
+    this.lastProviderType = providerType;
   }
 
   onEditorInit(editor: any) {
     this.editorInstance = editor;
-
-    // Register CosmosSQL language if not already registered
     const monaco = (window as any).monaco;
-    if (monaco && !monaco.languages.getLanguages().some((lang: any) => lang.id === 'cosmossql')) {
-      registerCosmosSQL(monaco);
+
+    // Register both languages if not already registered
+    if (monaco) {
+      const languages = monaco.languages.getLanguages();
+      if (!languages.some((lang: any) => lang.id === 'cosmossql')) {
+        registerCosmosSQL(monaco);
+      }
+      if (!languages.some((lang: any) => lang.id === 'mongodb')) {
+        registerMongoDB(monaco);
+      }
     }
 
-    // Set the language to cosmossql
-    const model = editor.getModel();
-    if (model) {
-      monaco.editor.setModelLanguage(model, 'cosmossql');
-    }
+    // Set the language based on current provider type
+    const providerType = this.activeProviderType();
+    this.switchEditorLanguage(providerType);
 
     // Add Ctrl+Enter / Cmd+Enter keybinding
     editor.addCommand(
@@ -445,7 +529,12 @@ export class QueryEditorComponent implements OnInit {
 
   formatQuery() {
     if (!this.query.trim()) return;
-    this.query = this.formatSQL(this.query);
+    const providerType = this.activeProviderType();
+    if (providerType === 'cosmos-mongo' || providerType === 'mongodb') {
+      this.query = this.formatJSON(this.query);
+    } else {
+      this.query = this.formatSQL(this.query);
+    }
     this.queryStore.setQuery(this.query);
     this.queryChange.emit(this.query);
   }
@@ -483,6 +572,35 @@ export class QueryEditorComponent implements OnInit {
   onQueryChange(query: string) {
     this.queryStore.setQuery(query);
     this.queryChange.emit(query);
+  }
+
+  private switchEditorLanguage(providerType: ProviderType): void {
+    if (!this.editorInstance) return;
+
+    const monaco = (window as any).monaco;
+    if (!monaco) return;
+
+    const model = this.editorInstance.getModel();
+    if (!model) return;
+
+    const languageId = providerType === 'cosmos-mongo' || providerType === 'mongodb'
+      ? 'mongodb'
+      : 'cosmossql';
+
+    if (this.currentLanguage !== languageId) {
+      this.currentLanguage = languageId;
+      monaco.editor.setModelLanguage(model, languageId);
+    }
+  }
+
+  private formatJSON(json: string): string {
+    try {
+      const parsed = JSON.parse(json);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      // If invalid JSON, return as-is
+      return json;
+    }
   }
 
   private formatSQL(sql: string): string {

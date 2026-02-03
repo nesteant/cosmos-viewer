@@ -78,7 +78,7 @@ export const ConnectionsStore = signalStore(
 
       async testConnection(
         providerType: ProviderType,
-        config: { endpoint: string; key: string }
+        config: { endpoint?: string; key?: string; connectionString?: string }
       ) {
         patchState(store, { isTesting: true, testResult: null, error: null });
         try {

@@ -65,6 +65,12 @@ import { ConnectionListComponent } from './components/connection-list/connection
   `,
   styles: [
     `
+      :host {
+        display: block;
+        height: 100%;
+        overflow: hidden;
+      }
+
       .connections-container {
         height: 100%;
         display: flex;
@@ -72,6 +78,7 @@ import { ConnectionListComponent } from './components/connection-list/connection
         padding: 24px 32px;
         max-width: 1400px;
         margin: 0 auto;
+        overflow: hidden;
       }
 
       .connections-header {
@@ -99,7 +106,9 @@ import { ConnectionListComponent } from './components/connection-list/connection
 
       .connections-content {
         flex: 1;
-        overflow: auto;
+        overflow-y: auto;
+        min-height: 0;
+        padding-bottom: 24px;
       }
 
       .form-panel {

@@ -5,3 +5,4 @@ export * from './column-detector';
 export * from './value-type-detector';
 export * from './date-utils';
 export * from './cosmossql-monaco';
+export * from './query-utils';
