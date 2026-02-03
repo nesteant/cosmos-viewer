@@ -26,6 +26,7 @@ export interface DatabaseConnection {
   defaultDatabase?: string;
   createdAt: Date;
   lastUsedAt?: Date;
+  order?: number;
 }
 
 export interface ConnectionTestResult {

@@ -58,6 +58,7 @@ import { ConnectionListComponent } from './components/connection-list/connection
             (edit)="onEdit($event)"
             (duplicate)="onDuplicate($event)"
             (delete)="onDelete($event)"
+            (reorder)="onReorder($event)"
           />
         }
       </div>
@@ -179,5 +180,9 @@ export class ConnectionsComponent implements OnInit {
         this.store.deleteConnection(connection.id);
       }
     });
+  }
+
+  onReorder(connections: DatabaseConnection[]) {
+    this.store.reorderConnections(connections);
   }
 }

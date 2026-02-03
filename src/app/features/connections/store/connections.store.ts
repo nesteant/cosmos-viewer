@@ -42,9 +42,10 @@ export const ConnectionsStore = signalStore(
     hasConnections: computed(() => store.connections().length > 0),
     sortedConnections: computed(() => {
       return [...store.connections()].sort((a, b) => {
-        const aTime = a.lastUsedAt?.getTime() ?? a.createdAt.getTime();
-        const bTime = b.lastUsedAt?.getTime() ?? b.createdAt.getTime();
-        return bTime - aTime;
+        // Sort by order if available, otherwise by createdAt
+        const aOrder = a.order ?? a.createdAt.getTime();
+        const bOrder = b.order ?? b.createdAt.getTime();
+        return aOrder - bOrder;
       });
     }),
     enabledProviders: computed(() => store.providers().filter(p => p.enabled)),
@@ -107,12 +108,17 @@ export const ConnectionsStore = signalStore(
       ) {
         patchState(store, { isLoading: true, error: null });
         try {
+          // Calculate the next order value
+          const currentConnections = store.connections();
+          const maxOrder = currentConnections.reduce((max, c) => Math.max(max, c.order ?? 0), 0);
+
           const newConnection: DatabaseConnection = {
             ...connectionData,
             id: uuidv4(),
             createdAt: new Date(),
+            order: maxOrder + 1,
           };
-          const updatedConnections = [...store.connections(), newConnection];
+          const updatedConnections = [...currentConnections, newConnection];
           await electronService.saveConnections(updatedConnections);
           patchState(store, {
             connections: updatedConnections,
@@ -220,6 +226,23 @@ export const ConnectionsStore = signalStore(
 
       clearError() {
         patchState(store, { error: null });
+      },
+
+      async reorderConnections(reorderedConnections: DatabaseConnection[]) {
+        try {
+          // Assign new order values based on array position
+          const updatedConnections = reorderedConnections.map((connection, index) => ({
+            ...connection,
+            order: index,
+          }));
+          await electronService.saveConnections(updatedConnections);
+          patchState(store, { connections: updatedConnections });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'Failed to reorder connections';
+          notificationService.error(message);
+          throw error;
+        }
       },
     };
   })
