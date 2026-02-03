@@ -94,6 +94,20 @@ export const ExplorerStore = signalStore(
     hasSelection: computed(() => store.activeTabId() !== null),
     hasTabs: computed(() => store.tabs().length > 0),
 
+    // Get tabs filtered by current active connection
+    connectionTabs: computed(() => {
+      const connectionId = sessionStorage.getItem('activeConnectionId');
+      if (!connectionId) return [];
+      return store.tabs().filter((t) => t.connectionId === connectionId);
+    }),
+
+    // Check if there are tabs for the current connection
+    hasConnectionTabs: computed(() => {
+      const connectionId = sessionStorage.getItem('activeConnectionId');
+      if (!connectionId) return false;
+      return store.tabs().some((t) => t.connectionId === connectionId);
+    }),
+
     isLoading: computed(
       () => store.isLoadingDatabases() || store.isLoadingContainers()
     ),
@@ -280,6 +294,20 @@ export const ExplorerStore = signalStore(
       // Load tabs from persistence
       setTabs(tabs: TabState[], activeTabId: string | null) {
         patchState(store, { tabs, activeTabId });
+      },
+
+      // Sync active tab to current connection (call after connection changes)
+      syncActiveTabToConnection() {
+        const connectionId = getActiveConnectionId();
+        if (!connectionId) return;
+
+        const currentActiveTab = store.tabs().find((t) => t.id === store.activeTabId());
+
+        // If current active tab is for a different connection, switch to first tab of current connection
+        if (!currentActiveTab || currentActiveTab.connectionId !== connectionId) {
+          const connectionTab = store.tabs().find((t) => t.connectionId === connectionId);
+          patchState(store, { activeTabId: connectionTab?.id ?? null });
+        }
       },
 
       // For backwards compatibility

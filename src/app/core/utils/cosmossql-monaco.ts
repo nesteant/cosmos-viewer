@@ -303,6 +303,10 @@ export function registerCosmosSQL(monaco: any): void {
 
     tokenizer: {
       root: [
+        // Bracket notation property access: ["$type"] or ['$type']
+        [/\["/, { token: 'delimiter.bracket', next: '@bracketProperty_double' }],
+        [/\['/, { token: 'delimiter.bracket', next: '@bracketProperty_single' }],
+
         // Identifiers and keywords
         [/[a-zA-Z_]\w*/, {
           cases: {
@@ -361,6 +365,24 @@ export function registerCosmosSQL(monaco: any): void {
         [/@escapes/, 'string.escape'],
         [/\\./, 'string.escape.invalid'],
         [/'/, 'string', '@pop']
+      ],
+
+      // Bracket notation property access with double quotes: ["$type"]
+      bracketProperty_double: [
+        [/[^"\\]+/, 'variable.property'],
+        [/@escapes/, 'variable.property.escape'],
+        [/\\./, 'variable.property'],
+        [/"\]/, { token: 'delimiter.bracket', next: '@pop' }],
+        [/"/, { token: 'delimiter.bracket', next: '@pop' }]
+      ],
+
+      // Bracket notation property access with single quotes: ['$type']
+      bracketProperty_single: [
+        [/[^'\\]+/, 'variable.property'],
+        [/@escapes/, 'variable.property.escape'],
+        [/\\./, 'variable.property'],
+        [/'\]/, { token: 'delimiter.bracket', next: '@pop' }],
+        [/'/, { token: 'delimiter.bracket', next: '@pop' }]
       ],
     },
   });

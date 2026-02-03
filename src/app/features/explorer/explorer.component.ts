@@ -90,10 +90,10 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
 
       <!-- Main area -->
       <div class="main-content">
-          <!-- Tab bar -->
-          @if (explorerStore.hasTabs()) {
+          <!-- Tab bar (filtered to current connection) -->
+          @if (explorerStore.hasConnectionTabs()) {
             <app-tab-bar
-              [tabs]="explorerStore.tabs()"
+              [tabs]="explorerStore.connectionTabs()"
               [activeTabId]="explorerStore.activeTabId()"
               (tabSelected)="onTabSelected($event)"
               (tabClosed)="onTabClosed($event)"
@@ -447,9 +447,13 @@ export class ExplorerComponent implements OnInit, OnDestroy {
         this.queryStore.initializeTab(tab.id, tab.query);
       }
 
+      // Sync active tab to current connection (in case stored active tab is from different connection)
+      this.explorerStore.syncActiveTabToConnection();
+
       // Set active tab in query store
-      if (tabsPrefs.activeTabId) {
-        this.queryStore.setActiveTab(tabsPrefs.activeTabId);
+      const activeTabId = this.explorerStore.activeTabId();
+      if (activeTabId) {
+        this.queryStore.setActiveTab(activeTabId);
       }
     }
   }
@@ -486,37 +490,11 @@ export class ExplorerComponent implements OnInit, OnDestroy {
     this.saveTabsState();
   }
 
-  async onTabSelected(tab: TabState) {
+  onTabSelected(tab: TabState) {
     // Save current tab's query before switching
     this.saveTabsState();
 
-    // Check if we need to switch connections
-    const currentConnectionId = sessionStorage.getItem('activeConnectionId');
-    const tabConnectionId = tab.connectionId;
-
-    // Case 1: No active connection but tab has one stored
-    if (!currentConnectionId && tabConnectionId) {
-      const connection = this.connectionsStore.connections().find(c => c.id === tabConnectionId);
-      if (connection) {
-        this.notificationService.info(`Connecting to: ${connection.name}`);
-        await this.connectionsStore.connectAndNavigate(tabConnectionId);
-        await this.explorerStore.loadDatabases();
-      } else {
-        this.notificationService.warn('Connection no longer exists. Tab may not work correctly.');
-      }
-    }
-    // Case 2: Active connection differs from tab's connection
-    else if (tabConnectionId && tabConnectionId !== currentConnectionId) {
-      const connection = this.connectionsStore.connections().find(c => c.id === tabConnectionId);
-      if (connection) {
-        this.notificationService.info(`Switching to: ${connection.name}`);
-        await this.connectionsStore.connectAndNavigate(tabConnectionId);
-        await this.explorerStore.loadDatabases();
-      } else {
-        this.notificationService.warn('Connection no longer exists. Tab may not work correctly.');
-      }
-    }
-
+    // Activate the tab (tabs are already filtered to current connection)
     this.explorerStore.activateTab(tab.id);
     this.queryStore.setActiveTab(tab.id);
   }
