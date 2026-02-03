@@ -22,14 +22,44 @@ import {
   IndexMetrics,
   OptimizationHint,
   HintSeverity,
+  ProviderType,
 } from '@core/models';
 import { ElectronService } from '@core/services';
 import { QueryParserService } from '../../services/query-parser.service';
+import { MongoQueryParserService } from '../../services/mongo-query-parser.service';
 
 interface QueryAnalyzerDialogData {
   query: string;
   container: ContainerInfo;
   connectionId: string;
+  providerType: ProviderType;
+}
+
+interface MongoExplainData {
+  queryPlanner?: {
+    winningPlan?: {
+      stage?: string;
+      inputStage?: {
+        stage?: string;
+        indexName?: string;
+        keyPattern?: Record<string, number>;
+        indexBounds?: Record<string, string[]>;
+      };
+    };
+    rejectedPlans?: any[];
+  };
+  executionStats?: {
+    executionSuccess?: boolean;
+    nReturned?: number;
+    executionTimeMillis?: number;
+    totalKeysExamined?: number;
+    totalDocsExamined?: number;
+  };
+  serverInfo?: {
+    host?: string;
+    port?: number;
+    version?: string;
+  };
 }
 
 @Component({
@@ -70,14 +100,16 @@ interface QueryAnalyzerDialogData {
               <div class="explanation-summary">
                 {{ analysis()!.explanation.summary }}
               </div>
-              <div class="clause-list">
-                @for (clause of analysis()!.explanation.clauses; track clause.type) {
-                  <div class="clause-item">
-                    <span class="clause-type">{{ clause.type.replace('_', ' ') }}</span>
-                    <span class="clause-desc">{{ clause.description }}</span>
-                  </div>
-                }
-              </div>
+              @if (analysis()!.explanation.clauses.length > 0) {
+                <div class="clause-list">
+                  @for (clause of analysis()!.explanation.clauses; track clause.type) {
+                    <div class="clause-item">
+                      <span class="clause-type">{{ clause.type.replace('_', ' ') }}</span>
+                      <span class="clause-desc">{{ clause.description }}</span>
+                    </div>
+                  }
+                </div>
+              }
             </div>
           </mat-tab>
 
@@ -117,63 +149,134 @@ interface QueryAnalyzerDialogData {
           <!-- Index Metrics Tab -->
           <mat-tab label="Index Metrics">
             <div class="tab-content">
-              @if (analysis()!.indexMetrics) {
-                <!-- Utilized Indexes -->
-                <div class="index-section">
-                  <h4>
-                    <mat-icon class="success">check_circle</mat-icon>
-                    Utilized Indexes
-                  </h4>
-                  @if (analysis()!.indexMetrics!.utilizedSingleIndexes.length > 0) {
-                    @for (idx of analysis()!.indexMetrics!.utilizedSingleIndexes; track idx.indexSpec) {
-                      <div class="index-item utilized">
-                        <code>{{ idx.indexSpec }}</code>
-                        <span class="impact high">{{ idx.indexImpactScore }}</span>
+              @if (isMongoDB()) {
+                <!-- MongoDB Explain Output -->
+                @if (mongoExplain()) {
+                  <!-- Query Plan -->
+                  <div class="index-section">
+                    <h4>
+                      <mat-icon class="success">account_tree</mat-icon>
+                      Query Plan
+                    </h4>
+                    <div class="mongo-plan">
+                      @if (mongoExplain()!.queryPlanner?.winningPlan) {
+                        <div class="plan-item">
+                          <span class="plan-label">Stage:</span>
+                          <code class="plan-value" [class.warning]="mongoExplain()!.queryPlanner!.winningPlan!.stage === 'COLLSCAN'">
+                            {{ mongoExplain()!.queryPlanner!.winningPlan!.stage || 'N/A' }}
+                          </code>
+                        </div>
+                        @if (mongoExplain()!.queryPlanner!.winningPlan!.inputStage) {
+                          <div class="plan-item">
+                            <span class="plan-label">Input Stage:</span>
+                            <code class="plan-value">{{ mongoExplain()!.queryPlanner!.winningPlan!.inputStage!.stage }}</code>
+                          </div>
+                          @if (mongoExplain()!.queryPlanner!.winningPlan!.inputStage!.indexName) {
+                            <div class="plan-item">
+                              <span class="plan-label">Index Used:</span>
+                              <code class="plan-value success">{{ mongoExplain()!.queryPlanner!.winningPlan!.inputStage!.indexName }}</code>
+                            </div>
+                          }
+                        }
+                      }
+                    </div>
+                  </div>
+
+                  <!-- Execution Stats -->
+                  @if (mongoExplain()!.executionStats) {
+                    <div class="index-section">
+                      <h4>
+                        <mat-icon class="info">speed</mat-icon>
+                        Execution Statistics
+                      </h4>
+                      <div class="mongo-stats">
+                        <div class="stat-item">
+                          <span class="stat-label">Documents Returned:</span>
+                          <span class="stat-value">{{ mongoExplain()!.executionStats!.nReturned ?? 'N/A' }}</span>
+                        </div>
+                        <div class="stat-item">
+                          <span class="stat-label">Documents Examined:</span>
+                          <span class="stat-value" [class.warning]="(mongoExplain()!.executionStats!.totalDocsExamined ?? 0) > (mongoExplain()!.executionStats!.nReturned ?? 0) * 10">
+                            {{ mongoExplain()!.executionStats!.totalDocsExamined ?? 'N/A' }}
+                          </span>
+                        </div>
+                        <div class="stat-item">
+                          <span class="stat-label">Keys Examined:</span>
+                          <span class="stat-value">{{ mongoExplain()!.executionStats!.totalKeysExamined ?? 'N/A' }}</span>
+                        </div>
+                        <div class="stat-item">
+                          <span class="stat-label">Execution Time:</span>
+                          <span class="stat-value">{{ mongoExplain()!.executionStats!.executionTimeMillis ?? 'N/A' }} ms</span>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                } @else {
+                  <div class="empty-message">
+                    <mat-icon>info</mat-icon>
+                    <span>No execution plan available for this query</span>
+                  </div>
+                }
+              } @else {
+                <!-- Cosmos SQL Index Metrics -->
+                @if (analysis()!.indexMetrics) {
+                  <!-- Utilized Indexes -->
+                  <div class="index-section">
+                    <h4>
+                      <mat-icon class="success">check_circle</mat-icon>
+                      Utilized Indexes
+                    </h4>
+                    @if (analysis()!.indexMetrics!.utilizedSingleIndexes.length > 0) {
+                      @for (idx of analysis()!.indexMetrics!.utilizedSingleIndexes; track idx.indexSpec) {
+                        <div class="index-item utilized">
+                          <code>{{ idx.indexSpec }}</code>
+                          <span class="impact high">{{ idx.indexImpactScore }}</span>
+                        </div>
+                      }
+                    } @else {
+                      <div class="empty-hint">No single indexes utilized</div>
+                    }
+                    @for (idx of analysis()!.indexMetrics!.utilizedCompositeIndexes; track idx.indexSpecs.join()) {
+                      <div class="index-item utilized composite">
+                        <code>{{ idx.indexSpecs.join(' + ') }}</code>
+                        <span class="impact high">Composite</span>
                       </div>
                     }
-                  } @else {
-                    <div class="empty-hint">No single indexes utilized</div>
-                  }
-                  @for (idx of analysis()!.indexMetrics!.utilizedCompositeIndexes; track idx.indexSpecs.join()) {
-                    <div class="index-item utilized composite">
-                      <code>{{ idx.indexSpecs.join(' + ') }}</code>
-                      <span class="impact high">Composite</span>
-                    </div>
-                  }
-                </div>
+                  </div>
 
-                <!-- Recommended Indexes -->
-                <div class="index-section">
-                  <h4>
-                    <mat-icon class="warning">lightbulb</mat-icon>
-                    Recommended Indexes
-                  </h4>
-                  @if (analysis()!.indexMetrics!.potentialSingleIndexes.length === 0 &&
-                       analysis()!.indexMetrics!.potentialCompositeIndexes.length === 0) {
-                    <div class="empty-hint success">No additional indexes recommended</div>
-                  }
-                  @for (idx of analysis()!.indexMetrics!.potentialSingleIndexes; track idx.indexSpec) {
-                    <div class="index-item potential">
-                      <code>{{ idx.indexSpec }}</code>
-                      <span class="impact" [class.high]="idx.indexImpactScore === 'High'">
-                        {{ idx.indexImpactScore }} impact
-                      </span>
-                    </div>
-                  }
-                  @for (idx of analysis()!.indexMetrics!.potentialCompositeIndexes; track idx.indexSpecs.join()) {
-                    <div class="index-item potential composite">
-                      <code>{{ idx.indexSpecs.join(' + ') }}</code>
-                      <span class="impact" [class.high]="idx.indexImpactScore === 'High'">
-                        {{ idx.indexImpactScore }} impact
-                      </span>
-                    </div>
-                  }
-                </div>
-              } @else {
-                <div class="empty-message">
-                  <mat-icon>info</mat-icon>
-                  <span>Index metrics not available for this query</span>
-                </div>
+                  <!-- Recommended Indexes -->
+                  <div class="index-section">
+                    <h4>
+                      <mat-icon class="warning">lightbulb</mat-icon>
+                      Recommended Indexes
+                    </h4>
+                    @if (analysis()!.indexMetrics!.potentialSingleIndexes.length === 0 &&
+                         analysis()!.indexMetrics!.potentialCompositeIndexes.length === 0) {
+                      <div class="empty-hint success">No additional indexes recommended</div>
+                    }
+                    @for (idx of analysis()!.indexMetrics!.potentialSingleIndexes; track idx.indexSpec) {
+                      <div class="index-item potential">
+                        <code>{{ idx.indexSpec }}</code>
+                        <span class="impact" [class.high]="idx.indexImpactScore === 'High'">
+                          {{ idx.indexImpactScore }} impact
+                        </span>
+                      </div>
+                    }
+                    @for (idx of analysis()!.indexMetrics!.potentialCompositeIndexes; track idx.indexSpecs.join()) {
+                      <div class="index-item potential composite">
+                        <code>{{ idx.indexSpecs.join(' + ') }}</code>
+                        <span class="impact" [class.high]="idx.indexImpactScore === 'High'">
+                          {{ idx.indexImpactScore }} impact
+                        </span>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-message">
+                    <mat-icon>info</mat-icon>
+                    <span>Index metrics not available for this query</span>
+                  </div>
+                }
               }
             </div>
           </mat-tab>
@@ -482,6 +585,50 @@ interface QueryAnalyzerDialogData {
         padding: 12px 16px;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
       }
+
+      /* MongoDB-specific styles */
+      .mongo-plan,
+      .mongo-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .plan-item,
+      .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 4px;
+      }
+
+      .plan-label,
+      .stat-label {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        min-width: 140px;
+      }
+
+      .plan-value,
+      .stat-value {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.9);
+      }
+
+      .plan-value.warning,
+      .stat-value.warning {
+        color: #ff9800;
+      }
+
+      .plan-value.success {
+        color: #4caf50;
+      }
+
+      .index-section h4 mat-icon.info {
+        color: #2196f3;
+      }
     `,
   ],
 })
@@ -490,11 +637,20 @@ export class QueryAnalyzerDialogComponent implements OnInit {
   readonly data = inject<QueryAnalyzerDialogData>(MAT_DIALOG_DATA);
   private electronService = inject(ElectronService);
   private queryParser = inject(QueryParserService);
+  private mongoQueryParser = inject(MongoQueryParserService);
 
   analysis = signal<QueryAnalysis | null>(null);
   isLoading = signal(true);
   error = signal<string | null>(null);
   serverError = signal<string | null>(null);
+
+  // MongoDB-specific explain data
+  mongoExplain = signal<MongoExplainData | null>(null);
+
+  // Check if this is a MongoDB provider
+  isMongoDB = computed(() =>
+    this.data.providerType === 'cosmos-mongo' || this.data.providerType === 'mongodb'
+  );
 
   hintCount = computed(() => this.analysis()?.optimizationHints.length ?? 0);
   hasWarnings = computed(() =>
@@ -511,18 +667,25 @@ export class QueryAnalyzerDialogComponent implements OnInit {
     this.isLoading.set(true);
     this.error.set(null);
     this.serverError.set(null);
+    this.mongoExplain.set(null);
 
     try {
+      const isMongo = this.isMongoDB();
+
       // Step 1: Parse query for explanation (client-side)
-      const explanation = this.queryParser.parseQuery(this.data.query);
+      const explanation = isMongo
+        ? this.mongoQueryParser.parseQuery(this.data.query)
+        : this.queryParser.parseQuery(this.data.query);
 
       // Step 2: Get optimization hints (client-side)
-      const hints = this.queryParser.analyzeForHints(
-        this.data.query,
-        this.data.container.partitionKeyPath
-      );
+      const hints: OptimizationHint[] = isMongo
+        ? this.mongoQueryParser.analyzeForHints(this.data.query)
+        : this.queryParser.analyzeForHints(
+            this.data.query,
+            this.data.container.partitionKeyPath
+          );
 
-      // Step 3: Get index metrics from Cosmos (server-side)
+      // Step 3: Get analysis from server
       let indexMetrics: IndexMetrics | null = null;
       let executionStats = null;
 
@@ -534,39 +697,60 @@ export class QueryAnalyzerDialogComponent implements OnInit {
           query: this.data.query,
         });
 
-        // Parse index metrics from JSON string
-        if (result.indexMetrics && result.indexMetrics !== '{}') {
-          try {
-            const parsed = JSON.parse(result.indexMetrics);
-            indexMetrics = {
-              utilizedSingleIndexes: parsed.UtilizedSingleIndexes || [],
-              potentialSingleIndexes: parsed.PotentialSingleIndexes || [],
-              utilizedCompositeIndexes: parsed.UtilizedCompositeIndexes || [],
-              potentialCompositeIndexes: parsed.PotentialCompositeIndexes || [],
-            };
+        if (isMongo) {
+          // Parse MongoDB explain output
+          if (result.indexMetrics && result.indexMetrics !== '{}') {
+            try {
+              const parsed = JSON.parse(result.indexMetrics);
+              this.mongoExplain.set(parsed);
 
-            // Add hints from server-side index recommendations
-            for (const idx of indexMetrics.potentialSingleIndexes) {
-              if (idx.indexImpactScore === 'High') {
-                hints.push({
-                  severity: 'warning',
-                  category: 'index',
-                  title: `Missing index: ${idx.indexSpec}`,
-                  description: `Creating an index on ${idx.indexSpec} could significantly improve query performance.`,
-                  suggestion: `Add a range index on path ${idx.indexSpec} in your indexing policy.`,
-                });
-              }
+              // Generate hints from MongoDB explain data
+              this.generateMongoHints(parsed, hints);
+            } catch {
+              // Ignore JSON parse errors
             }
-          } catch {
-            // Ignore JSON parse errors for index metrics
           }
-        }
 
-        executionStats = {
-          requestCharge: result.requestCharge,
-          executionTimeMs: result.executionTimeMs,
-          retrievedDocumentCount: result.retrievedDocumentCount,
-        };
+          executionStats = {
+            requestCharge: result.requestCharge,
+            executionTimeMs: result.executionTimeMs,
+            retrievedDocumentCount: result.retrievedDocumentCount,
+          };
+        } else {
+          // Parse Cosmos SQL index metrics
+          if (result.indexMetrics && result.indexMetrics !== '{}') {
+            try {
+              const parsed = JSON.parse(result.indexMetrics);
+              indexMetrics = {
+                utilizedSingleIndexes: parsed.UtilizedSingleIndexes || [],
+                potentialSingleIndexes: parsed.PotentialSingleIndexes || [],
+                utilizedCompositeIndexes: parsed.UtilizedCompositeIndexes || [],
+                potentialCompositeIndexes: parsed.PotentialCompositeIndexes || [],
+              };
+
+              // Add hints from server-side index recommendations
+              for (const idx of indexMetrics.potentialSingleIndexes) {
+                if (idx.indexImpactScore === 'High') {
+                  hints.push({
+                    severity: 'warning',
+                    category: 'index',
+                    title: `Missing index: ${idx.indexSpec}`,
+                    description: `Creating an index on ${idx.indexSpec} could significantly improve query performance.`,
+                    suggestion: `Add a range index on path ${idx.indexSpec} in your indexing policy.`,
+                  });
+                }
+              }
+            } catch {
+              // Ignore JSON parse errors for index metrics
+            }
+          }
+
+          executionStats = {
+            requestCharge: result.requestCharge,
+            executionTimeMs: result.executionTimeMs,
+            retrievedDocumentCount: result.retrievedDocumentCount,
+          };
+        }
       } catch (err: any) {
         // Server-side analysis failed, but we still have client-side analysis
         console.warn('Server-side analysis failed:', err);
@@ -585,6 +769,51 @@ export class QueryAnalyzerDialogComponent implements OnInit {
       this.error.set(err.message || 'Failed to analyze query');
     } finally {
       this.isLoading.set(false);
+    }
+  }
+
+  /**
+   * Generate optimization hints from MongoDB explain output
+   */
+  private generateMongoHints(explain: MongoExplainData, hints: OptimizationHint[]): void {
+    const stats = explain.executionStats;
+    const planner = explain.queryPlanner;
+
+    // Check for collection scan (no index used)
+    const stage = planner?.winningPlan?.stage || planner?.winningPlan?.inputStage?.stage;
+    if (stage === 'COLLSCAN') {
+      hints.push({
+        severity: 'warning',
+        category: 'index',
+        title: 'Collection scan detected',
+        description: 'Query is scanning the entire collection without using an index.',
+        suggestion: 'Consider creating an index on the fields used in your query filter.',
+      });
+    }
+
+    // Check for high docs examined vs returned ratio
+    if (stats && stats.nReturned !== undefined && stats.totalDocsExamined !== undefined) {
+      const ratio = stats.totalDocsExamined / Math.max(stats.nReturned, 1);
+      if (ratio > 10 && stats.totalDocsExamined > 100) {
+        hints.push({
+          severity: 'info',
+          category: 'index',
+          title: 'High document examination ratio',
+          description: `Examined ${stats.totalDocsExamined} documents to return ${stats.nReturned}. Ratio: ${ratio.toFixed(1)}x`,
+          suggestion: 'An index covering your query filter could reduce the number of documents examined.',
+        });
+      }
+    }
+
+    // Check if index was used
+    const indexName = planner?.winningPlan?.inputStage?.indexName;
+    if (indexName) {
+      hints.push({
+        severity: 'info',
+        category: 'index',
+        title: `Using index: ${indexName}`,
+        description: 'Query is utilizing an index for efficient execution.',
+      });
     }
   }
 

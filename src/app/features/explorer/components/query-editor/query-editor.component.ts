@@ -7,6 +7,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
+import JSON5 from 'json5';
 import { ContainerInfo, ProviderType } from '@core/models';
 import { NotificationService } from '@core/services';
 import { registerCosmosSQL, updateSchemaFromDocuments } from '@core/utils/cosmossql-monaco';
@@ -99,16 +100,14 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
             <mat-icon>auto_fix_high</mat-icon>
           </button>
 
-          @if (activeProviderType() === 'cosmos-sql') {
-            <button
-              mat-icon-button
-              (click)="analyzeQuery()"
-              matTooltip="Analyze Query (Ctrl+Shift+A)"
-              [disabled]="!query.trim() || !container()"
-            >
-              <mat-icon>analytics</mat-icon>
-            </button>
-          }
+          <button
+            mat-icon-button
+            (click)="analyzeQuery()"
+            matTooltip="Analyze Query (Ctrl+Shift+A)"
+            [disabled]="!query.trim() || !container()"
+          >
+            <mat-icon>analytics</mat-icon>
+          </button>
 
           <button
             mat-icon-button
@@ -163,11 +162,7 @@ function getTemplatesForProvider(providerType: ProviderType): QueryTemplate[] {
         }
         <span class="spacer"></span>
         <span class="hint">
-          @if (activeProviderType() === 'cosmos-sql') {
-            Ctrl+Enter: Execute | Ctrl+Shift+A: Analyze
-          } @else {
-            Ctrl+Enter: Execute
-          }
+          Ctrl+Enter: Execute | Ctrl+Shift+A: Analyze
         </span>
       </div>
     </div>
@@ -558,6 +553,7 @@ export class QueryEditorComponent implements OnInit {
         query: this.query,
         connectionId,
         container: cont,
+        providerType: this.activeProviderType(),
       },
     });
   }
@@ -595,7 +591,9 @@ export class QueryEditorComponent implements OnInit {
 
   private formatJSON(json: string): string {
     try {
-      const parsed = JSON.parse(json);
+      // Use JSON5 to parse relaxed JSON (unquoted keys, trailing commas, etc.)
+      const parsed = JSON5.parse(json);
+      // Output as standard JSON with proper formatting
       return JSON.stringify(parsed, null, 2);
     } catch {
       // If invalid JSON, return as-is

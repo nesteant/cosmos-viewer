@@ -12,8 +12,15 @@ export interface QueryExplanation {
   clauses: ClauseExplanation[];
 }
 
+// SQL clause types
+export type SqlClauseType = 'SELECT' | 'FROM' | 'WHERE' | 'ORDER_BY' | 'TOP' | 'OFFSET' | 'GROUP_BY' | 'JOIN';
+
+// MongoDB clause types
+export type MongoClauseType = 'FIELD' | 'FILTER' | 'ERROR' | '$and' | '$or' | '$nor' | '$match' | '$group' |
+  '$project' | '$sort' | '$limit' | '$skip' | '$unwind' | '$lookup' | '$count' | '$addFields' | '$set';
+
 export interface ClauseExplanation {
-  type: 'SELECT' | 'FROM' | 'WHERE' | 'ORDER_BY' | 'TOP' | 'OFFSET' | 'GROUP_BY' | 'JOIN';
+  type: SqlClauseType | MongoClauseType | string;
   description: string;
   fields?: string[];
 }
