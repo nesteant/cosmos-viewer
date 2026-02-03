@@ -4,8 +4,9 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { CosmosConnection } from '@core/models';
+import { DatabaseConnection, ProviderType } from '@core/models';
 import { ConnectionsStore } from '../../store';
 
 @Component({
@@ -15,6 +16,7 @@ import { ConnectionsStore } from '../../store';
     ReactiveFormsModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
     MatButtonModule,
     MatIconModule,
     MatProgressSpinnerModule,
@@ -24,6 +26,20 @@ import { ConnectionsStore } from '../../store';
       <h2 class="form-title">
         {{ editConnection() ? 'Edit Connection' : 'New Connection' }}
       </h2>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Provider</mat-label>
+        <mat-select formControlName="providerType">
+          @for (provider of store.providers(); track provider.type) {
+            <mat-option [value]="provider.type" [disabled]="!provider.enabled">
+              {{ provider.displayName }}
+              @if (!provider.enabled) {
+                <span class="coming-soon">(Coming Soon)</span>
+              }
+            </mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
 
       <mat-form-field appearance="outline">
         <mat-label>Connection Name</mat-label>
@@ -118,10 +134,10 @@ import { ConnectionsStore } from '../../store';
         >
           @if (result.success) {
             <mat-icon>check_circle</mat-icon>
-            <span>Connection successful! Found {{ result.databaseCount }} database(s).</span>
+            <span>{{ result.message }}</span>
           } @else {
             <mat-icon>error</mat-icon>
-            <span>{{ result.error }}</span>
+            <span>{{ result.message }}</span>
           }
         </div>
       }
@@ -145,6 +161,12 @@ import { ConnectionsStore } from '../../store';
 
       mat-form-field {
         width: 100%;
+      }
+
+      .coming-soon {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.5);
+        margin-left: 8px;
       }
 
       .form-actions {
@@ -197,13 +219,14 @@ export class ConnectionFormComponent implements OnInit {
   readonly store = inject(ConnectionsStore);
   private fb = inject(FormBuilder);
 
-  editConnection = input<CosmosConnection | null>(null);
-  saved = output<CosmosConnection>();
+  editConnection = input<DatabaseConnection | null>(null);
+  saved = output<DatabaseConnection>();
   cancel = output<void>();
 
   showKey = false;
 
   form = this.fb.group({
+    providerType: ['cosmos-sql' as ProviderType, Validators.required],
     name: ['', Validators.required],
     endpoint: ['', [Validators.required, Validators.pattern(/^https?:\/\/.+/)]],
     key: ['', Validators.required],
@@ -211,9 +234,15 @@ export class ConnectionFormComponent implements OnInit {
   });
 
   ngOnInit() {
+    // Load providers if not already loaded
+    if (this.store.providers().length === 0) {
+      this.store.loadProviders();
+    }
+
     const connection = this.editConnection();
     if (connection) {
       this.form.patchValue({
+        providerType: connection.providerType,
         name: connection.name,
         endpoint: connection.endpoint,
         key: connection.key,
@@ -226,20 +255,19 @@ export class ConnectionFormComponent implements OnInit {
   async onTestConnection() {
     if (!this.form.valid) return;
 
-    const { name, endpoint, key, defaultDatabase } = this.form.value;
-    await this.store.testConnection({
-      name: name!,
+    const { providerType, endpoint, key } = this.form.value;
+    await this.store.testConnection(providerType as ProviderType, {
       endpoint: endpoint!,
       key: key!,
-      defaultDatabase: defaultDatabase || undefined,
     });
   }
 
   async onSubmit() {
     if (!this.form.valid) return;
 
-    const { name, endpoint, key, defaultDatabase } = this.form.value;
+    const { providerType, name, endpoint, key, defaultDatabase } = this.form.value;
     const connectionData = {
+      providerType: providerType as ProviderType,
       name: name!,
       endpoint: endpoint!,
       key: key!,
@@ -249,7 +277,7 @@ export class ConnectionFormComponent implements OnInit {
     try {
       const existing = this.editConnection();
       if (existing) {
-        const updated: CosmosConnection = {
+        const updated: DatabaseConnection = {
           ...existing,
           ...connectionData,
         };

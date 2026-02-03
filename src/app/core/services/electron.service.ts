@@ -1,7 +1,10 @@
 import { Injectable } from '@angular/core';
 import {
-  CosmosConnection,
+  DatabaseConnection,
   ConnectionTestResult,
+  ProviderType,
+  ProviderInfo,
+  ProviderCapabilities,
   QueryParams,
   QueryResult,
   DatabaseInfo,
@@ -20,33 +23,41 @@ export class ElectronService {
     return window.electronAPI;
   }
 
+  // Provider operations
+  async listProviders(): Promise<ProviderInfo[]> {
+    return this.api.providers.list();
+  }
+
+  async getProviderCapabilities(providerType: ProviderType): Promise<ProviderCapabilities> {
+    return this.api.providers.getCapabilities(providerType);
+  }
+
+  async getQueryLanguageConfig(providerType: ProviderType) {
+    return this.api.providers.getQueryLanguage(providerType);
+  }
+
   // Connection operations
   async testConnection(
-    config: Omit<CosmosConnection, 'id' | 'createdAt'>
+    providerType: ProviderType,
+    config: { endpoint: string; key: string }
   ): Promise<ConnectionTestResult> {
-    const result = await this.api.cosmos.testConnection({
-      endpoint: config.endpoint,
-      key: config.key,
+    return this.api.db.testConnection({
+      providerType,
+      config,
     });
-    return {
-      connectionId: '',
-      success: result.success,
-      databaseCount: result.databaseCount,
-      error: result.error,
-    };
   }
 
   // Storage operations
-  async getConnections(): Promise<CosmosConnection[]> {
+  async getConnections(): Promise<DatabaseConnection[]> {
     const connections = await this.api.storage.getConnections();
-    return connections.map((c: any) => ({
+    return connections.map((c) => ({
       ...c,
       createdAt: new Date(c.createdAt),
       lastUsedAt: c.lastUsedAt ? new Date(c.lastUsedAt) : undefined,
     }));
   }
 
-  async saveConnections(connections: CosmosConnection[]): Promise<void> {
+  async saveConnections(connections: DatabaseConnection[]): Promise<void> {
     const serialized = connections.map((c) => ({
       ...c,
       createdAt: c.createdAt.toISOString(),
@@ -57,30 +68,41 @@ export class ElectronService {
 
   // Database operations
   async listDatabases(connectionId: string): Promise<DatabaseInfo[]> {
-    return this.api.cosmos.listDatabases(connectionId);
+    return this.api.db.listDatabases(connectionId);
   }
 
   async listContainers(
     connectionId: string,
     databaseId: string
   ): Promise<ContainerInfo[]> {
-    const containers = await this.api.cosmos.listContainers(
-      connectionId,
-      databaseId
-    );
+    const containers = await this.api.db.listContainers(connectionId, databaseId);
     return containers.map((c) => ({
-      ...c,
-      databaseId,
+      id: c.id,
+      name: c.name,
+      databaseId: c.databaseId,
+      partitionKeyPath: (c.metadata?.['partitionKeyPath'] as string) ?? '/id',
     }));
   }
 
   // Query operations
   async executeQuery(params: QueryParams): Promise<QueryResult> {
-    return this.api.cosmos.executeQuery(params);
+    const result = await this.api.db.executeQuery(params);
+    return {
+      documents: result.documents as CosmosDocument[],
+      continuationToken: result.continuationToken,
+      hasMoreResults: result.hasMoreResults,
+      requestCharge: result.metadata?.['requestCharge'] as number | undefined,
+    };
   }
 
   async analyzeQuery(params: AnalyzeQueryParams): Promise<AnalyzeQueryResult> {
-    return this.api.cosmos.analyzeQuery(params);
+    const result = await this.api.db.analyzeQuery(params);
+    return {
+      indexMetrics: result.indexMetrics ?? '{}',
+      executionTimeMs: result.executionTimeMs ?? 0,
+      requestCharge: (result.metadata?.['requestCharge'] as number) ?? 0,
+      retrievedDocumentCount: (result.metadata?.['retrievedDocumentCount'] as number) ?? 0,
+    };
   }
 
   // Document operations
@@ -90,7 +112,8 @@ export class ElectronService {
     containerId: string;
     document: CosmosDocument;
   }): Promise<CosmosDocument> {
-    return this.api.cosmos.createDocument(params);
+    const result = await this.api.db.createDocument(params);
+    return result.document as CosmosDocument;
   }
 
   async updateDocument(params: {
@@ -98,9 +121,10 @@ export class ElectronService {
     databaseId: string;
     containerId: string;
     document: CosmosDocument;
-    partitionKey: any;
+    partitionKey: unknown;
   }): Promise<CosmosDocument> {
-    return this.api.cosmos.updateDocument(params);
+    const result = await this.api.db.updateDocument(params);
+    return result.document as CosmosDocument;
   }
 
   async deleteDocument(params: {
@@ -108,9 +132,9 @@ export class ElectronService {
     databaseId: string;
     containerId: string;
     documentId: string;
-    partitionKey: any;
+    partitionKey: unknown;
   }): Promise<void> {
-    return this.api.cosmos.deleteDocument(params);
+    return this.api.db.deleteDocument(params);
   }
 
   // Layout preferences
@@ -124,12 +148,7 @@ export class ElectronService {
 
   // Tabs preferences
   async getTabsPreferences(): Promise<TabsPreferences> {
-    const prefs = await this.api.tabs.getPreferences();
-    // Filter out old tabs without connectionId (dev mode - no backward compat needed)
-    const validTabs = (prefs.tabs as Array<Record<string, unknown>>).filter(
-      (tab) => tab['connectionId']
-    ) as unknown as TabsPreferences['tabs'];
-    return { ...prefs, tabs: validTabs };
+    return this.api.tabs.getPreferences();
   }
 
   async saveTabsPreferences(prefs: TabsPreferences): Promise<void> {

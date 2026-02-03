@@ -6,12 +6,13 @@ import {
   withMethods,
   withState,
 } from '@ngrx/signals';
-import { CosmosConnection, ConnectionTestResult } from '@core/models';
+import { DatabaseConnection, ConnectionTestResult, ProviderType, ProviderInfo } from '@core/models';
 import { ElectronService, NotificationService } from '@core/services';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ConnectionsState {
-  connections: CosmosConnection[];
+  connections: DatabaseConnection[];
+  providers: ProviderInfo[];
   selectedConnectionId: string | null;
   isLoading: boolean;
   isTesting: boolean;
@@ -21,6 +22,7 @@ export interface ConnectionsState {
 
 const initialState: ConnectionsState = {
   connections: [],
+  providers: [],
   selectedConnectionId: null,
   isLoading: false,
   isTesting: false,
@@ -40,18 +42,27 @@ export const ConnectionsStore = signalStore(
     hasConnections: computed(() => store.connections().length > 0),
     sortedConnections: computed(() => {
       return [...store.connections()].sort((a, b) => {
-        // Sort by last used first, then by created date
         const aTime = a.lastUsedAt?.getTime() ?? a.createdAt.getTime();
         const bTime = b.lastUsedAt?.getTime() ?? b.createdAt.getTime();
         return bTime - aTime;
       });
     }),
+    enabledProviders: computed(() => store.providers().filter(p => p.enabled)),
   })),
   withMethods((store) => {
     const electronService = inject(ElectronService);
     const notificationService = inject(NotificationService);
 
     return {
+      async loadProviders() {
+        try {
+          const providers = await electronService.listProviders();
+          patchState(store, { providers });
+        } catch (error) {
+          console.error('Failed to load providers:', error);
+        }
+      },
+
       async loadConnections() {
         patchState(store, { isLoading: true, error: null });
         try {
@@ -65,37 +76,38 @@ export const ConnectionsStore = signalStore(
         }
       },
 
-      async testConnection(config: Omit<CosmosConnection, 'id' | 'createdAt'>) {
+      async testConnection(
+        providerType: ProviderType,
+        config: { endpoint: string; key: string }
+      ) {
         patchState(store, { isTesting: true, testResult: null, error: null });
         try {
-          const result = await electronService.testConnection(config);
+          const result = await electronService.testConnection(providerType, config);
           patchState(store, { testResult: result, isTesting: false });
           if (result.success) {
-            notificationService.success(
-              `Connection successful! Found ${result.databaseCount} database(s).`
-            );
+            notificationService.success(result.message ?? 'Connection successful!');
           } else {
-            notificationService.error(result.error ?? 'Connection failed');
+            notificationService.error(result.message ?? 'Connection failed');
           }
           return result;
         } catch (error) {
           const message =
             error instanceof Error ? error.message : 'Connection test failed';
           patchState(store, {
-            testResult: { connectionId: '', success: false, error: message },
+            testResult: { success: false, message },
             isTesting: false,
           });
           notificationService.error(message);
-          return { connectionId: '', success: false, error: message };
+          return { success: false, message };
         }
       },
 
       async saveConnection(
-        connectionData: Omit<CosmosConnection, 'id' | 'createdAt'>
+        connectionData: Omit<DatabaseConnection, 'id' | 'createdAt'>
       ) {
         patchState(store, { isLoading: true, error: null });
         try {
-          const newConnection: CosmosConnection = {
+          const newConnection: DatabaseConnection = {
             ...connectionData,
             id: uuidv4(),
             createdAt: new Date(),
@@ -117,7 +129,7 @@ export const ConnectionsStore = signalStore(
         }
       },
 
-      async updateConnection(connection: CosmosConnection) {
+      async updateConnection(connection: DatabaseConnection) {
         patchState(store, { isLoading: true, error: null });
         try {
           const updatedConnections = store
@@ -180,8 +192,7 @@ export const ConnectionsStore = signalStore(
         const connection = store.connections().find((c) => c.id === id);
         if (!connection) return;
 
-        // Update last used timestamp
-        const updatedConnection: CosmosConnection = {
+        const updatedConnection: DatabaseConnection = {
           ...connection,
           lastUsedAt: new Date(),
         };

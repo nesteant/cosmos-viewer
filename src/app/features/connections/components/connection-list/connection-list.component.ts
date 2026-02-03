@@ -1,5 +1,5 @@
 import { Component, input, output } from '@angular/core';
-import { CosmosConnection } from '@core/models';
+import { DatabaseConnection } from '@core/models';
 import { ConnectionCardComponent } from '../connection-card/connection-card.component';
 
 @Component({
@@ -45,10 +45,10 @@ import { ConnectionCardComponent } from '../connection-card/connection-card.comp
   ],
 })
 export class ConnectionListComponent {
-  connections = input.required<CosmosConnection[]>();
+  connections = input.required<DatabaseConnection[]>();
 
-  connect = output<CosmosConnection>();
-  edit = output<CosmosConnection>();
-  duplicate = output<CosmosConnection>();
-  delete = output<CosmosConnection>();
+  connect = output<DatabaseConnection>();
+  edit = output<DatabaseConnection>();
+  duplicate = output<DatabaseConnection>();
+  delete = output<DatabaseConnection>();
 }

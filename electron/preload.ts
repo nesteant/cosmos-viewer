@@ -1,21 +1,50 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+// Provider types
+type ProviderType = 'cosmos-sql' | 'cosmos-mongo' | 'mongodb' | 'jdbc';
+
 // Types for the exposed API
 export interface ElectronAPI {
-  cosmos: {
-    testConnection: (config: {
-      endpoint: string;
-      key: string;
-    }) => Promise<{ success: boolean; databaseCount?: number; error?: string }>;
-    listDatabases: (
-      connectionId: string
-    ) => Promise<Array<{ id: string; name: string }>>;
-    listContainers: (
-      connectionId: string,
-      databaseId: string
-    ) => Promise<
-      Array<{ id: string; name: string; partitionKeyPath: string }>
-    >;
+  providers: {
+    list: () => Promise<Array<{
+      type: ProviderType;
+      displayName: string;
+      description: string;
+      icon: string;
+      color: string;
+      enabled: boolean;
+    }>>;
+    getCapabilities: (providerType: ProviderType) => Promise<{
+      supportsQueryAnalysis: boolean;
+      supportsPagination: boolean;
+      supportsPartitionKey: boolean;
+      supportsTransactions: boolean;
+      queryLanguage: 'sql' | 'mongodb' | 'custom';
+    }>;
+    getQueryLanguage: (providerType: ProviderType) => Promise<{
+      languageId: string;
+      fileExtension: string;
+      keywords: string[];
+      functions: string[];
+      snippets: Array<{ label: string; insertText: string; description: string }>;
+    }>;
+  };
+  db: {
+    testConnection: (params: {
+      providerType: ProviderType;
+      config: Record<string, unknown>;
+    }) => Promise<{ success: boolean; message?: string; metadata?: Record<string, unknown> }>;
+    listDatabases: (connectionId: string) => Promise<Array<{
+      id: string;
+      name: string;
+      metadata?: Record<string, unknown>;
+    }>>;
+    listContainers: (connectionId: string, databaseId: string) => Promise<Array<{
+      id: string;
+      name: string;
+      databaseId: string;
+      metadata?: Record<string, unknown>;
+    }>>;
     executeQuery: (params: {
       connectionId: string;
       databaseId: string;
@@ -24,46 +53,63 @@ export interface ElectronAPI {
       pageSize?: number;
       continuationToken?: string | null;
     }) => Promise<{
-      documents: any[];
+      documents: unknown[];
       continuationToken?: string | null;
       hasMoreResults: boolean;
-      requestCharge?: number;
+      metadata?: Record<string, unknown>;
     }>;
-    createDocument: (params: {
-      connectionId: string;
-      databaseId: string;
-      containerId: string;
-      document: any;
-    }) => Promise<any>;
-    updateDocument: (params: {
-      connectionId: string;
-      databaseId: string;
-      containerId: string;
-      document: any;
-      partitionKey: any;
-    }) => Promise<any>;
-    deleteDocument: (params: {
-      connectionId: string;
-      databaseId: string;
-      containerId: string;
-      documentId: string;
-      partitionKey: any;
-    }) => Promise<void>;
     analyzeQuery: (params: {
       connectionId: string;
       databaseId: string;
       containerId: string;
       query: string;
     }) => Promise<{
-      indexMetrics: string;
-      requestCharge: number;
-      executionTimeMs: number;
-      retrievedDocumentCount: number;
+      indexMetrics?: string;
+      executionTimeMs?: number;
+      metadata?: Record<string, unknown>;
     }>;
+    createDocument: (params: {
+      connectionId: string;
+      databaseId: string;
+      containerId: string;
+      document: unknown;
+    }) => Promise<{ document: unknown; metadata?: Record<string, unknown> }>;
+    updateDocument: (params: {
+      connectionId: string;
+      databaseId: string;
+      containerId: string;
+      document: unknown;
+      partitionKey?: unknown;
+    }) => Promise<{ document: unknown; metadata?: Record<string, unknown> }>;
+    deleteDocument: (params: {
+      connectionId: string;
+      databaseId: string;
+      containerId: string;
+      documentId: string;
+      partitionKey?: unknown;
+    }) => Promise<void>;
   };
   storage: {
-    getConnections: () => Promise<any[]>;
-    saveConnections: (connections: any[]) => Promise<void>;
+    getConnections: () => Promise<Array<{
+      id: string;
+      name: string;
+      providerType: ProviderType;
+      endpoint: string;
+      key: string;
+      defaultDatabase?: string;
+      createdAt: string;
+      lastUsedAt?: string;
+    }>>;
+    saveConnections: (connections: Array<{
+      id: string;
+      name: string;
+      providerType: ProviderType;
+      endpoint: string;
+      key: string;
+      defaultDatabase?: string;
+      createdAt: string;
+      lastUsedAt?: string;
+    }>) => Promise<void>;
   };
   layout: {
     getPreferences: () => Promise<{
@@ -83,6 +129,7 @@ export interface ElectronAPI {
     getPreferences: () => Promise<{
       tabs: Array<{
         id: string;
+        connectionId: string;
         containerId: string;
         containerName: string;
         databaseId: string;
@@ -94,6 +141,7 @@ export interface ElectronAPI {
     savePreferences: (prefs: {
       tabs: Array<{
         id: string;
+        connectionId: string;
         containerId: string;
         containerName: string;
         databaseId: string;
@@ -124,43 +172,36 @@ export interface ElectronAPI {
 }
 
 const electronAPI: ElectronAPI = {
-  cosmos: {
-    testConnection: (config) =>
-      ipcRenderer.invoke('cosmos:test-connection', config),
-    listDatabases: (connectionId) =>
-      ipcRenderer.invoke('cosmos:list-databases', connectionId),
-    listContainers: (connectionId, databaseId) =>
-      ipcRenderer.invoke('cosmos:list-containers', connectionId, databaseId),
-    executeQuery: (params) =>
-      ipcRenderer.invoke('cosmos:execute-query', params),
-    createDocument: (params) =>
-      ipcRenderer.invoke('cosmos:create-document', params),
-    updateDocument: (params) =>
-      ipcRenderer.invoke('cosmos:update-document', params),
-    deleteDocument: (params) =>
-      ipcRenderer.invoke('cosmos:delete-document', params),
-    analyzeQuery: (params) =>
-      ipcRenderer.invoke('cosmos:analyze-query', params),
+  providers: {
+    list: () => ipcRenderer.invoke('providers:list'),
+    getCapabilities: (providerType) => ipcRenderer.invoke('providers:get-capabilities', providerType),
+    getQueryLanguage: (providerType) => ipcRenderer.invoke('providers:get-query-language', providerType),
+  },
+  db: {
+    testConnection: (params) => ipcRenderer.invoke('db:test-connection', params),
+    listDatabases: (connectionId) => ipcRenderer.invoke('db:list-databases', connectionId),
+    listContainers: (connectionId, databaseId) => ipcRenderer.invoke('db:list-containers', connectionId, databaseId),
+    executeQuery: (params) => ipcRenderer.invoke('db:execute-query', params),
+    analyzeQuery: (params) => ipcRenderer.invoke('db:analyze-query', params),
+    createDocument: (params) => ipcRenderer.invoke('db:create-document', params),
+    updateDocument: (params) => ipcRenderer.invoke('db:update-document', params),
+    deleteDocument: (params) => ipcRenderer.invoke('db:delete-document', params),
   },
   storage: {
     getConnections: () => ipcRenderer.invoke('storage:get-connections'),
-    saveConnections: (connections) =>
-      ipcRenderer.invoke('storage:save-connections', connections),
+    saveConnections: (connections) => ipcRenderer.invoke('storage:save-connections', connections),
   },
   layout: {
     getPreferences: () => ipcRenderer.invoke('layout:get-preferences'),
-    savePreferences: (prefs) =>
-      ipcRenderer.invoke('layout:save-preferences', prefs),
+    savePreferences: (prefs) => ipcRenderer.invoke('layout:save-preferences', prefs),
   },
   tabs: {
     getPreferences: () => ipcRenderer.invoke('tabs:get-preferences'),
-    savePreferences: (prefs) =>
-      ipcRenderer.invoke('tabs:save-preferences', prefs),
+    savePreferences: (prefs) => ipcRenderer.invoke('tabs:save-preferences', prefs),
   },
   table: {
     getPreferences: () => ipcRenderer.invoke('table:get-preferences'),
-    savePreferences: (prefs) =>
-      ipcRenderer.invoke('table:save-preferences', prefs),
+    savePreferences: (prefs) => ipcRenderer.invoke('table:save-preferences', prefs),
   },
 };
 

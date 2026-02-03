@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
-import { CosmosConnection } from '@core/models';
+import { DatabaseConnection } from '@core/models';
 import { LoadingSpinnerComponent, ConfirmDialogComponent } from '@shared/components';
 import { ConnectionsStore } from './store';
 import { ConnectionFormComponent } from './components/connection-form/connection-form.component';
@@ -116,13 +116,13 @@ export class ConnectionsComponent implements OnInit {
   private dialog = inject(MatDialog);
 
   showForm = signal(false);
-  editingConnection = signal<CosmosConnection | null>(null);
+  editingConnection = signal<DatabaseConnection | null>(null);
 
   ngOnInit() {
     this.store.loadConnections();
   }
 
-  onConnectionSaved(_connection: CosmosConnection) {
+  onConnectionSaved(_connection: DatabaseConnection) {
     this.closeForm();
   }
 
@@ -132,19 +132,19 @@ export class ConnectionsComponent implements OnInit {
     this.store.clearTestResult();
   }
 
-  async onConnect(connection: CosmosConnection) {
+  async onConnect(connection: DatabaseConnection) {
     const success = await this.store.connectAndNavigate(connection.id);
     if (success) {
       this.router.navigate(['/explorer']);
     }
   }
 
-  onEdit(connection: CosmosConnection) {
+  onEdit(connection: DatabaseConnection) {
     this.editingConnection.set(connection);
     this.showForm.set(true);
   }
 
-  onDuplicate(connection: CosmosConnection) {
+  onDuplicate(connection: DatabaseConnection) {
     this.editingConnection.set({
       ...connection,
       id: '', // Will be assigned a new ID on save
@@ -155,7 +155,7 @@ export class ConnectionsComponent implements OnInit {
     this.showForm.set(true);
   }
 
-  onDelete(connection: CosmosConnection) {
+  onDelete(connection: DatabaseConnection) {
     const dialogRef = this.dialog.open(ConfirmDialogComponent, {
       data: {
         title: 'Delete Connection',

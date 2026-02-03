@@ -1,8 +1,9 @@
 import { ipcMain } from 'electron';
-import { cosmosService } from './cosmos.service';
+import { providerManager, initializeProviders, ProviderType } from '../providers';
 import {
   getConnections,
   saveConnections,
+  getConnectionById,
   getLayoutPreferences,
   saveLayoutPreferences,
   getTabsPreferences,
@@ -15,11 +16,14 @@ import {
  * Register all IPC handlers for main process communication
  */
 export function registerIpcHandlers(): void {
+  // Initialize providers
+  initializeProviders();
+
   // Storage handlers
   ipcMain.handle('storage:get-connections', async () => {
     try {
       return getConnections();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to get connections:', error);
       throw error;
     }
@@ -28,83 +32,148 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('storage:save-connections', async (_, connections) => {
     try {
       saveConnections(connections);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to save connections:', error);
       throw error;
     }
   });
 
-  // Cosmos DB handlers
-  ipcMain.handle('cosmos:test-connection', async (_, config) => {
+  // Provider management handlers
+  ipcMain.handle('providers:list', async () => {
     try {
-      return await cosmosService.testConnection(config);
-    } catch (error: any) {
-      console.error('Failed to test connection:', error);
-      return { success: false, error: error.message };
+      return providerManager.listProviders();
+    } catch (error: unknown) {
+      console.error('Failed to list providers:', error);
+      throw error;
     }
   });
 
-  ipcMain.handle('cosmos:list-databases', async (_, connectionId) => {
+  ipcMain.handle('providers:get-capabilities', async (_, providerType: ProviderType) => {
     try {
-      return await cosmosService.listDatabases(connectionId);
-    } catch (error: any) {
+      return providerManager.getCapabilities(providerType);
+    } catch (error: unknown) {
+      console.error('Failed to get provider capabilities:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('providers:get-query-language', async (_, providerType: ProviderType) => {
+    try {
+      const provider = providerManager.get(providerType);
+      return provider.getQueryLanguage();
+    } catch (error: unknown) {
+      console.error('Failed to get query language config:', error);
+      throw error;
+    }
+  });
+
+  // Database handlers - route through provider manager
+  ipcMain.handle('db:test-connection', async (_, { providerType, config }) => {
+    try {
+      const provider = providerManager.get(providerType || 'cosmos-sql');
+      return await provider.testConnection({
+        type: providerType || 'cosmos-sql',
+        settings: config,
+      });
+    } catch (error: unknown) {
+      console.error('Failed to test connection:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message };
+    }
+  });
+
+  ipcMain.handle('db:list-databases', async (_, connectionId) => {
+    try {
+      const provider = providerManager.getForConnection(connectionId);
+      return await provider.listDatabases(connectionId);
+    } catch (error: unknown) {
       console.error('Failed to list databases:', error);
       throw error;
     }
   });
 
-  ipcMain.handle(
-    'cosmos:list-containers',
-    async (_, connectionId, databaseId) => {
-      try {
-        return await cosmosService.listContainers(connectionId, databaseId);
-      } catch (error: any) {
-        console.error('Failed to list containers:', error);
-        throw error;
-      }
-    }
-  );
-
-  ipcMain.handle('cosmos:execute-query', async (_, params) => {
+  ipcMain.handle('db:list-containers', async (_, connectionId, databaseId) => {
     try {
-      return await cosmosService.executeQuery(params);
-    } catch (error: any) {
+      const provider = providerManager.getForConnection(connectionId);
+      return await provider.listCollections(connectionId, databaseId);
+    } catch (error: unknown) {
+      console.error('Failed to list containers:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('db:execute-query', async (_, params) => {
+    try {
+      const provider = providerManager.getForConnection(params.connectionId);
+      return await provider.executeQuery({
+        ...params,
+        collectionId: params.containerId, // Map containerId to collectionId
+      });
+    } catch (error: unknown) {
       console.error('Failed to execute query:', error);
       throw error;
     }
   });
 
-  ipcMain.handle('cosmos:analyze-query', async (_, params) => {
+  ipcMain.handle('db:analyze-query', async (_, params) => {
     try {
-      return await cosmosService.analyzeQuery(params);
-    } catch (error: any) {
+      const provider = providerManager.getForConnection(params.connectionId);
+      if (!provider.analyzeQuery) {
+        throw new Error('Query analysis not supported by this provider');
+      }
+      return await provider.analyzeQuery({
+        ...params,
+        collectionId: params.containerId,
+      });
+    } catch (error: unknown) {
       console.error('Failed to analyze query:', error);
       throw error;
     }
   });
 
-  ipcMain.handle('cosmos:create-document', async (_, params) => {
+  ipcMain.handle('db:create-document', async (_, params) => {
     try {
-      return await cosmosService.createDocument(params);
-    } catch (error: any) {
+      const provider = providerManager.getForConnection(params.connectionId);
+      return await provider.createDocument({
+        connectionId: params.connectionId,
+        databaseId: params.databaseId,
+        collectionId: params.containerId,
+        document: params.document,
+      });
+    } catch (error: unknown) {
       console.error('Failed to create document:', error);
       throw error;
     }
   });
 
-  ipcMain.handle('cosmos:update-document', async (_, params) => {
+  ipcMain.handle('db:update-document', async (_, params) => {
     try {
-      return await cosmosService.updateDocument(params);
-    } catch (error: any) {
+      const provider = providerManager.getForConnection(params.connectionId);
+      return await provider.updateDocument({
+        connectionId: params.connectionId,
+        databaseId: params.databaseId,
+        collectionId: params.containerId,
+        documentId: params.document.id,
+        document: params.document,
+        options: { partitionKey: params.partitionKey },
+      });
+    } catch (error: unknown) {
       console.error('Failed to update document:', error);
       throw error;
     }
   });
 
-  ipcMain.handle('cosmos:delete-document', async (_, params) => {
+  ipcMain.handle('db:delete-document', async (_, params) => {
     try {
-      return await cosmosService.deleteDocument(params);
-    } catch (error: any) {
+      const provider = providerManager.getForConnection(params.connectionId);
+      await provider.deleteDocument({
+        connectionId: params.connectionId,
+        databaseId: params.databaseId,
+        collectionId: params.containerId,
+        documentId: params.documentId,
+        options: { partitionKey: params.partitionKey },
+      });
+    } catch (error: unknown) {
       console.error('Failed to delete document:', error);
       throw error;
     }
@@ -114,7 +183,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('layout:get-preferences', async () => {
     try {
       return getLayoutPreferences();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to get layout preferences:', error);
       throw error;
     }
@@ -123,7 +192,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('layout:save-preferences', async (_, prefs) => {
     try {
       saveLayoutPreferences(prefs);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to save layout preferences:', error);
       throw error;
     }
@@ -133,7 +202,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('tabs:get-preferences', async () => {
     try {
       return getTabsPreferences();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to get tabs preferences:', error);
       throw error;
     }
@@ -142,7 +211,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('tabs:save-preferences', async (_, prefs) => {
     try {
       saveTabsPreferences(prefs);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to save tabs preferences:', error);
       throw error;
     }
@@ -152,7 +221,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('table:get-preferences', async () => {
     try {
       return getTablePreferences();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to get table preferences:', error);
       throw error;
     }
@@ -161,7 +230,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('table:save-preferences', async (_, prefs) => {
     try {
       saveTablePreferences(prefs);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to save table preferences:', error);
       throw error;
     }

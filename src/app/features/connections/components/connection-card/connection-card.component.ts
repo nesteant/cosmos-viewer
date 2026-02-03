@@ -5,7 +5,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { CosmosConnection } from '@core/models';
+import { DatabaseConnection, ProviderType } from '@core/models';
 
 @Component({
   selector: 'app-connection-card',
@@ -26,6 +26,9 @@ import { CosmosConnection } from '@core/models';
         <mat-card-subtitle>
           {{ getEndpointHost(connection().endpoint) }}
         </mat-card-subtitle>
+        <span class="provider-badge" [class]="'provider-' + connection().providerType">
+          {{ getProviderLabel(connection().providerType) }}
+        </span>
         <button
           mat-icon-button
           [matMenuTriggerFor]="menu"
@@ -48,9 +51,9 @@ import { CosmosConnection } from '@core/models';
             <mat-icon>schedule</mat-icon>
             <span>
               @if (connection().lastUsedAt) {
-                Last used {{ connection().lastUsedAt | date: 'short' }}
+                Last used {{ connection().lastUsedAt | date: 'dd.MM.yyyy HH:mm' }}
               } @else {
-                Created {{ connection().createdAt | date: 'short' }}
+                Created {{ connection().createdAt | date: 'dd.MM.yyyy HH:mm' }}
               }
             </span>
           </div>
@@ -88,16 +91,34 @@ import { CosmosConnection } from '@core/models';
     `
       .connection-card {
         cursor: pointer;
-        transition: transform 0.2s, box-shadow 0.2s;
+        transition: border-color 0.15s, background-color 0.15s;
+        border: 1px solid transparent;
       }
 
       .connection-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        border-color: rgba(187, 134, 252, 0.4);
+        background-color: rgba(255, 255, 255, 0.03);
       }
 
       mat-card-header {
         position: relative;
+      }
+
+      .provider-badge {
+        position: absolute;
+        top: 8px;
+        right: 48px;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 6px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .provider-badge {
+        background: rgba(187, 134, 252, 0.2);
+        color: #bb86fc;
       }
 
       .db-icon {
@@ -158,6 +179,10 @@ import { CosmosConnection } from '@core/models';
         padding: 8px 16px 16px;
       }
 
+      mat-card-actions button {
+        color: #bb86fc;
+      }
+
       mat-card-actions button mat-icon {
         margin-right: 4px;
       }
@@ -173,12 +198,19 @@ import { CosmosConnection } from '@core/models';
   ],
 })
 export class ConnectionCardComponent {
-  connection = input.required<CosmosConnection>();
+  connection = input.required<DatabaseConnection>();
 
-  connect = output<CosmosConnection>();
-  edit = output<CosmosConnection>();
-  duplicate = output<CosmosConnection>();
-  delete = output<CosmosConnection>();
+  connect = output<DatabaseConnection>();
+  edit = output<DatabaseConnection>();
+  duplicate = output<DatabaseConnection>();
+  delete = output<DatabaseConnection>();
+
+  private providerLabels: Record<ProviderType, string> = {
+    'cosmos-sql': 'Cosmos',
+    'cosmos-mongo': 'Cosmos',
+    'mongodb': 'Mongo',
+    'jdbc': 'JDBC',
+  };
 
   getEndpointHost(endpoint: string): string {
     try {
@@ -187,5 +219,9 @@ export class ConnectionCardComponent {
     } catch {
       return endpoint;
     }
+  }
+
+  getProviderLabel(providerType: ProviderType): string {
+    return this.providerLabels[providerType] ?? providerType;
   }
 }

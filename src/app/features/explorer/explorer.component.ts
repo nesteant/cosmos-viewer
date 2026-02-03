@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
-import { ContainerInfo, TabState } from '@core/models';
+import { ContainerInfo, TabState, ProviderType } from '@core/models';
 import { LayoutPreferencesService, NotificationService, TabsPersistenceService, TablePreferencesService } from '@core/services';
 import { CollapseButtonComponent } from '@shared/components';
 import { ConnectionsStore } from '../connections/store';
@@ -64,6 +64,11 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
             <span class="connection-name">
               {{ connectionsStore.selectedConnection()?.name ?? 'Connection' }}
             </span>
+            @if (connectionsStore.selectedConnection()?.providerType; as providerType) {
+              <span class="provider-badge" [class]="'provider-' + providerType">
+                {{ getProviderLabel(providerType) }}
+              </span>
+            }
             <span class="spacer"></span>
             <button
               mat-icon-button
@@ -244,8 +249,19 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        flex: 1;
         min-width: 0;
+      }
+
+      .provider-badge {
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 6px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        flex-shrink: 0;
+        background: rgba(187, 134, 252, 0.2);
+        color: #bb86fc;
       }
 
       .spacer {
@@ -597,5 +613,15 @@ export class ExplorerComponent implements OnInit, OnDestroy {
       queryPanelCollapsed: collapsed,
       queryPanelSize: this.queryPanelSize(),
     });
+  }
+
+  getProviderLabel(providerType: ProviderType): string {
+    const labels: Record<ProviderType, string> = {
+      'cosmos-sql': 'Cosmos',
+      'cosmos-mongo': 'Cosmos',
+      'mongodb': 'Mongo',
+      'jdbc': 'JDBC',
+    };
+    return labels[providerType] || providerType;
   }
 }

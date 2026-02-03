@@ -102,6 +102,48 @@ body {
   --mdc-dialog-container-color: #2d2d2d;
 }
 
+// Select/dropdown styles for dark mode with purple+white scheme
+.mat-mdc-select {
+  --mat-select-trigger-text-color: rgba(255, 255, 255, 0.87);
+  --mat-select-enabled-trigger-text-color: rgba(255, 255, 255, 0.87);
+  --mat-select-disabled-trigger-text-color: rgba(255, 255, 255, 0.38);
+  --mat-select-placeholder-text-color: rgba(255, 255, 255, 0.6);
+  --mat-select-enabled-arrow-color: rgba(255, 255, 255, 0.54);
+  --mat-select-disabled-arrow-color: rgba(255, 255, 255, 0.38);
+  --mat-select-focused-arrow-color: #bb86fc;
+}
+
+.mat-mdc-select-panel {
+  --mat-option-selected-state-label-text-color: #bb86fc;
+  --mat-option-label-text-color: rgba(255, 255, 255, 0.87);
+  --mat-option-hover-state-layer-color: rgba(187, 134, 252, 0.12);
+  --mat-option-focus-state-layer-color: rgba(187, 134, 252, 0.12);
+  --mat-option-selected-state-layer-color: rgba(187, 134, 252, 0.2);
+  background-color: #2d2d2d !important;
+}
+
+.mat-mdc-option {
+  --mdc-list-list-item-label-text-color: rgba(255, 255, 255, 0.87);
+  --mdc-list-list-item-hover-label-text-color: rgba(255, 255, 255, 0.87);
+  --mdc-list-list-item-focus-label-text-color: rgba(255, 255, 255, 0.87);
+}
+
+.mat-mdc-option.mdc-list-item--selected:not(.mdc-list-item--disabled) {
+  --mdc-list-list-item-label-text-color: #bb86fc;
+}
+
+.mat-pseudo-checkbox-checked {
+  --mat-pseudo-checkbox-checked-background-color: #bb86fc;
+  --mat-pseudo-checkbox-checked-checkmark-color: #1e1e1e;
+}
+
+// Form field focus border color
+.mat-mdc-form-field {
+  --mdc-outlined-text-field-focus-outline-color: #bb86fc;
+  --mdc-outlined-text-field-focus-label-text-color: #bb86fc;
+  --mat-form-field-focus-select-arrow-color: #bb86fc;
+}
+
 // Field editor dialog - fixed height
 .field-editor-dialog {
   .mat-mdc-dialog-surface {

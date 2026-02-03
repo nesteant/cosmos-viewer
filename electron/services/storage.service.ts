@@ -1,8 +1,11 @@
 import Store from 'electron-store';
 
-interface ConnectionData {
+type ProviderType = 'cosmos-sql' | 'cosmos-mongo' | 'mongodb' | 'jdbc';
+
+interface DatabaseConnectionData {
   id: string;
   name: string;
+  providerType: ProviderType;
   endpoint: string;
   key: string;
   defaultDatabase?: string;
@@ -65,7 +68,7 @@ interface TablePreferencesData {
 }
 
 interface StoreSchema {
-  connections: ConnectionData[];
+  connections: DatabaseConnectionData[];
   layoutPreferences: LayoutPreferences;
   tabsPreferences: TabsPreferences;
   tablePreferences: TablePreferencesData;
@@ -100,13 +103,15 @@ const store = new Store<StoreSchema>({
         properties: {
           id: { type: 'string' },
           name: { type: 'string' },
+          providerType: { type: 'string', default: 'cosmos-sql' },
           endpoint: { type: 'string' },
           key: { type: 'string' },
           defaultDatabase: { type: 'string' },
+          settings: { type: 'object' },
           createdAt: { type: 'string' },
           lastUsedAt: { type: 'string' },
         },
-        required: ['id', 'name', 'endpoint', 'key', 'createdAt'],
+        required: ['id', 'name', 'createdAt'],
       },
     },
     layoutPreferences: {
@@ -149,15 +154,15 @@ const store = new Store<StoreSchema>({
   },
 });
 
-export function getConnections(): ConnectionData[] {
+export function getConnections(): DatabaseConnectionData[] {
   return store.get('connections', []);
 }
 
-export function saveConnections(connections: ConnectionData[]): void {
+export function saveConnections(connections: DatabaseConnectionData[]): void {
   store.set('connections', connections);
 }
 
-export function getConnectionById(id: string): ConnectionData | undefined {
+export function getConnectionById(id: string): DatabaseConnectionData | undefined {
   return getConnections().find((c) => c.id === id);
 }
 
