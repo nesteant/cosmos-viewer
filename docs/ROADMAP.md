@@ -1,31 +1,49 @@
 # Cosmos DB Viewer - Future Improvements Roadmap
 
 ## Overview
-MVP is complete with data formatters, resizable panels, column resizing, query tabs, and import/export. This document outlines remaining enhancements.
+The application supports multiple database providers (Cosmos SQL, MongoDB) with comprehensive query editing, results table, and document management features. This document outlines remaining enhancements.
 
 ---
 
 ## Completed Features
 
-- ✅ **Data Type Formatters** - GUID, DateTime/Timestamp, Numbers, Booleans, URLs, Objects, Arrays, null/empty indicators
-- ✅ **Resizable Layout Panels** - Draggable splitters (sidebar, query editor, results)
-- ✅ **Column Resizing** - Drag header borders with visible handles
-- ✅ **Query Tabs** - Multiple tabs per container with close functionality
-- ✅ **Import/Export** - JSON and CSV formats
-- ✅ **Inline Editing** - Cell editing with type selection (string, number, boolean, null, delete)
-- ✅ **Monaco Editor** - For complex fields (objects, arrays, long text)
-- ✅ **Query Autocomplete** - Field names from schema inference (nested paths), CosmosSQL keywords, functions, lowercase literals
-- ✅ **Table Navigation** - Arrow keys to move between cells, Enter to edit, Escape to cancel/clear focus
-- ✅ **Right-click Context Menu** - Row actions (Save, Discard, View JSON, Duplicate, Delete)
-- ✅ **Row Numbering** - Sticky row numbers column
-- ✅ **Query Persistence** - Queries saved per tab across refreshes/restarts
-- ✅ **SQL Formatter** - Format query with comment preservation
-- ✅ **JetBrains Mono Font** - Local font (no CDN dependency)
-- ✅ **Column Highlighting** - Key (id), partition key, and system columns visually distinguished
-- ✅ **Query Analyzer** - Query explanation, optimization hints, index metrics with Ctrl+Shift+A
-- ✅ **Column Management** - Reorder via drag-drop, hide/show with picker, pin columns left, container presets
-- ✅ **Table Sorting** - Click column header to sort (asc/desc/none cycle)
-- ✅ **Table Filtering** - Global search + per-column filter inputs with highlighting
+### Core Functionality
+- **Multi-Provider Support** - Abstracted provider interface supporting Cosmos SQL and MongoDB
+- **Data Type Formatters** - GUID, DateTime/Timestamp, Numbers, Booleans, URLs, Objects, Arrays, null/empty indicators
+- **Resizable Layout Panels** - Draggable splitters (sidebar, query editor, results)
+- **Column Resizing** - Drag header borders with visible handles
+- **Query Tabs** - Multiple tabs per container with close functionality
+- **Import/Export** - JSON and CSV formats with selection export
+- **Inline Editing** - Cell editing with type selection (string, number, boolean, null, delete)
+- **Monaco Editor** - For queries and complex fields (objects, arrays, long text)
+- **JetBrains Mono Font** - Local font (no CDN dependency)
+
+### Query Editor
+- **Query Autocomplete** - Field names from schema inference (nested paths), keywords, functions
+- **SQL Formatter** - Format query with comment preservation
+- **Query Analyzer** - Query explanation, optimization hints, index metrics with Ctrl+Shift+A
+- **Query Persistence** - Queries saved per tab across refreshes/restarts
+- **MongoDB Aggregation Pipeline** - Visual pipeline builder with stage-by-stage execution
+
+### Results Table
+- **Table Navigation** - Arrow keys to move between cells, Enter to edit, Escape to cancel
+- **Type-to-Edit** - Start typing on selected cell to begin editing
+- **Right-click Context Menu** - Row actions (Save, Discard, View JSON, Duplicate, Delete)
+- **Row Numbering** - Sticky row numbers column
+- **Column Highlighting** - Key (id), partition key, and system columns visually distinguished
+- **Column Management** - Reorder via drag-drop, hide/show with picker, pin columns left, container presets
+- **Table Sorting** - Click column header to sort (asc/desc/none cycle)
+- **Table Filtering** - Global search + per-column filter inputs with highlighting
+- **Area Selection** - Excel-like multi-cell selection with mouse drag, Shift+click, Shift+arrows
+- **Clipboard Operations** - Copy (Cmd+C) and paste (Cmd+V) with TSV format support
+- **Row Selection** - Click row number to select, drag to multi-select rows
+- **Export Selection** - Export selected rows as JSON or CSV
+
+### Connection Management
+- **Connection Cards** - Visual connection management with provider badges
+- **Drag-and-Drop Ordering** - Reorder connections by dragging
+- **Duplicate Connection** - Clone existing connections
+- **Test Connection** - Verify connection before saving
 
 ---
 
@@ -47,14 +65,11 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 
 ## Priority 2: Keyboard & Navigation
 
-### 2.1 Keyboard Shortcuts
+### 2.1 Additional Keyboard Shortcuts
 | Action | Shortcut |
 |--------|----------|
-| Execute query | Cmd+Enter |
 | New document | Cmd+N |
-| Save changes | Cmd+S |
 | Save all | Cmd+Shift+S |
-| Find in results | Cmd+F |
 | Command palette | Cmd+P |
 | Close tab | Cmd+W |
 | Toggle sidebar | Cmd+B |
@@ -70,21 +85,13 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 ## Priority 3: Document Operations
 
 ### 3.1 Bulk Operations
-- Multi-select rows (Shift+click, Cmd+click)
 - Bulk delete with confirmation
 - Bulk update (set field value for selected)
-- Bulk export selected
 
 ### 3.2 Document Comparison
 - Diff view between original and modified
 - Side-by-side JSON comparison
 - Highlight added/removed/changed fields
-
-### 3.3 Clipboard Operations
-- Copy cell value
-- Copy row as JSON
-- Copy selected rows as JSON array
-- Paste JSON to create document
 
 ---
 
@@ -141,7 +148,7 @@ MVP is complete with data formatters, resizable panels, column resizing, query t
 - Snippet categories: aggregation, joins, filtering, pagination
 - Auto-suggest snippets based on context
 
-### 7.2 Visual Query Builder
+### 7.2 Visual Query Builder (Cosmos SQL)
 - Drag-drop field selection
 - Filter condition builder (AND/OR groups)
 - ORDER BY, TOP, OFFSET LIMIT helpers
