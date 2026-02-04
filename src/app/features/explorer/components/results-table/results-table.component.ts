@@ -210,12 +210,18 @@ import { ImportExportService } from '../import-export/import-export.service';
       />
 
       @if (queryStore.hasDocuments()) {
-        <div class="table-wrapper" tabindex="0" #tableWrapper (scroll)="closeContextMenu()">
+        <div class="table-wrapper" tabindex="0" #tableWrapper (scroll)="closeContextMenu()" [class.selecting]="isDragging()">
           <table mat-table [dataSource]="processedDocuments()">
             <!-- Row number column -->
             <ng-container matColumnDef="_rowNum">
               <th mat-header-cell *matHeaderCellDef class="row-num-cell">#</th>
-              <td mat-cell *matCellDef="let doc; let i = index" class="row-num-cell">
+              <td
+                mat-cell
+                *matCellDef="let doc; let i = index"
+                class="row-num-cell"
+                [class.row-selected]="isRowSelected(doc.id)"
+                (mousedown)="onRowNumberClick(doc.id, $event)"
+              >
                 {{ i + 1 }}
               </td>
             </ng-container>
@@ -274,13 +280,15 @@ import { ImportExportService } from '../import-export/import-export.service';
                   [class.dirty]="queryStore.isFieldDirty(doc.id, column)"
                   [class.editable]="!isSystemField(column)"
                   [class.cell-focused]="isCellFocused(doc.id, column)"
+                  [class.cell-selected]="isCellInSelection(doc.id, column)"
                   [class.id-column]="column === 'id'"
                   [class.partition-key-column]="column === partitionKeyField() && column !== 'id'"
                   [class.system-column]="isSystemField(column)"
                   [style.width.px]="columnWidths()[column]"
                   [style.min-width.px]="columnWidths()[column]"
                   [style.max-width.px]="columnWidths()[column]"
-                  (click)="onCellClick(doc.id, column, $event)"
+                  (mousedown)="onCellMouseDown(doc.id, column, $event)"
+                  (mouseenter)="onCellMouseEnter(doc.id, column)"
                   (dblclick)="startEditing(doc, column)"
                 >
                   @if (editingCell?.docId === doc.id && editingCell?.path === column) {
@@ -518,6 +526,18 @@ import { ImportExportService } from '../import-export/import-export.service';
         position: sticky;
         left: 0;
         z-index: 1;
+        cursor: pointer;
+      }
+
+      td.row-num-cell:hover {
+        background: rgba(66, 165, 245, 0.15);
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      td.row-num-cell.row-selected {
+        background: rgba(66, 165, 245, 0.3);
+        color: white;
+        font-weight: 600;
       }
 
       th.row-num-cell {
@@ -545,14 +565,46 @@ import { ImportExportService } from '../import-export/import-export.service';
         cursor: cell;
       }
 
-      td.cell-focused {
+      td.mat-mdc-cell.cell-focused {
         outline: 2px solid #bb86fc;
         outline-offset: -2px;
-        background: rgba(187, 134, 252, 0.1);
+        background: rgba(187, 134, 252, 0.15) !important;
+      }
+
+      td.mat-mdc-cell.cell-selected {
+        background: rgba(66, 165, 245, 0.3) !important;
+        position: relative;
+      }
+
+      td.mat-mdc-cell.cell-selected::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border: 1px solid rgba(66, 165, 245, 0.6);
+        pointer-events: none;
+      }
+
+      td.mat-mdc-cell.cell-selected.cell-focused {
+        background: rgba(66, 165, 245, 0.35) !important;
+        outline: 2px solid #bb86fc;
+        outline-offset: -2px;
+      }
+
+      td.mat-mdc-cell.cell-selected.cell-focused::after {
+        border: none;
       }
 
       .table-wrapper:focus {
         outline: none;
+      }
+
+      .table-wrapper.selecting {
+        user-select: none;
+        cursor: cell;
+      }
+
+      .table-wrapper.selecting td {
+        cursor: cell;
       }
 
       tr.dirty-row {
@@ -1107,6 +1159,11 @@ export class ResultsTableComponent {
   // Keyboard navigation - track by docId and column path for mat-table compatibility
   focusedCell = signal<{ docId: string; path: string } | null>(null);
 
+  // Area selection for copy/paste
+  selectionStart = signal<{ docId: string; path: string } | null>(null);
+  selectionEnd = signal<{ docId: string; path: string } | null>(null);
+  isDragging = signal(false);
+
   // Type selection for inline editing
   applicableTypes: TypeOption[] = [];
   specialOptions: TypeOption[] = getSpecialOptions();
@@ -1468,24 +1525,62 @@ export class ResultsTableComponent {
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
     const focused = this.focusedCell();
-    const isNavKey = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape'].includes(event.key);
-    if (!focused && !isNavKey) return;
+    const docs = this.processedDocuments();
+    // Use visibleColumns which respects pinned column order
+    const columns = this.visibleColumns();
 
-    const docs = this.queryStore.documents();
-    const columns = this.displayedColumns();
+    // Handle copy/paste
+    if ((event.metaKey || event.ctrlKey) && event.key === 'c') {
+      event.preventDefault();
+      this.copySelection();
+      return;
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key === 'v') {
+      event.preventDefault();
+      this.pasteToSelection();
+      return;
+    }
+
+    const isNavKey = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Tab'].includes(event.key);
+
+    // Type to edit: if a cell is focused and user types a printable character, start editing
+    if (focused && !isNavKey && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.length === 1) {
+      const doc = docs.find(d => d.id === focused.docId);
+      if (doc && !isSystemField(focused.path)) {
+        event.preventDefault();
+        this.startEditingWithChar(doc, focused.path, event.key);
+        return;
+      }
+    }
+
+    if (!focused && !isNavKey) return;
     if (docs.length === 0 || columns.length === 0) return;
 
     // Get current position
     let rowIndex = focused ? docs.findIndex(d => d.id === focused.docId) : -1;
     let colIndex = focused ? columns.indexOf(focused.path) : -1;
 
+    // Handle shift+arrow for area selection
+    const isShift = event.shiftKey;
+
+    // Save original focused cell for selection start (before we change it)
+    const originalFocused = focused ? { ...focused } : null;
+
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
         if (!focused) {
           this.focusedCell.set({ docId: docs[0].id, path: columns[0] });
+          this.clearSelection();
         } else if (rowIndex < docs.length - 1) {
-          this.focusedCell.set({ docId: docs[rowIndex + 1].id, path: columns[colIndex] });
+          const newCell = { docId: docs[rowIndex + 1].id, path: columns[colIndex] };
+          if (isShift) {
+            this.extendSelectionFrom(originalFocused!, newCell);
+          } else {
+            this.clearSelection();
+          }
+          this.focusedCell.set(newCell);
         }
         this.scrollToFocusedCell();
         break;
@@ -1493,17 +1588,36 @@ export class ResultsTableComponent {
       case 'ArrowUp':
         event.preventDefault();
         if (focused && rowIndex > 0) {
-          this.focusedCell.set({ docId: docs[rowIndex - 1].id, path: columns[colIndex] });
+          const newCell = { docId: docs[rowIndex - 1].id, path: columns[colIndex] };
+          if (isShift) {
+            this.extendSelectionFrom(originalFocused!, newCell);
+          } else {
+            this.clearSelection();
+          }
+          this.focusedCell.set(newCell);
           this.scrollToFocusedCell();
         }
         break;
 
       case 'ArrowRight':
+      case 'Tab':
         event.preventDefault();
         if (!focused) {
           this.focusedCell.set({ docId: docs[0].id, path: columns[0] });
+          this.clearSelection();
         } else if (colIndex < columns.length - 1) {
-          this.focusedCell.set({ docId: docs[rowIndex].id, path: columns[colIndex + 1] });
+          const newCell = { docId: docs[rowIndex].id, path: columns[colIndex + 1] };
+          if (isShift && event.key === 'ArrowRight') {
+            this.extendSelectionFrom(originalFocused!, newCell);
+          } else {
+            this.clearSelection();
+          }
+          this.focusedCell.set(newCell);
+        } else if (event.key === 'Tab' && rowIndex < docs.length - 1) {
+          // Tab at end of row goes to first column of next row
+          const newCell = { docId: docs[rowIndex + 1].id, path: columns[0] };
+          this.focusedCell.set(newCell);
+          this.clearSelection();
         }
         this.scrollToFocusedCell();
         break;
@@ -1511,7 +1625,13 @@ export class ResultsTableComponent {
       case 'ArrowLeft':
         event.preventDefault();
         if (focused && colIndex > 0) {
-          this.focusedCell.set({ docId: docs[rowIndex].id, path: columns[colIndex - 1] });
+          const newCell = { docId: docs[rowIndex].id, path: columns[colIndex - 1] };
+          if (isShift) {
+            this.extendSelectionFrom(originalFocused!, newCell);
+          } else {
+            this.clearSelection();
+          }
+          this.focusedCell.set(newCell);
           this.scrollToFocusedCell();
         }
         break;
@@ -1529,7 +1649,187 @@ export class ResultsTableComponent {
       case 'Escape':
         event.preventDefault();
         this.focusedCell.set(null);
+        this.clearSelection();
         break;
+    }
+  }
+
+  // Start editing with initial character
+  private startEditingWithChar(doc: CosmosDocument, path: string, char: string) {
+    if (isSystemField(path)) return;
+
+    const value = getValueAtPath(doc, stringToPath(path));
+
+    // For complex types, don't allow type-to-edit
+    if (value !== null && typeof value === 'object') {
+      return;
+    }
+
+    this.editingCell = { docId: doc.id, path };
+    this.editingValue = char;
+
+    this.updateApplicableTypes(this.editingValue, false);
+    this.selectedType = 'string';
+
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const input = document.querySelector('.cell-input') as HTMLInputElement;
+        if (input) {
+          input.focus();
+          // Place cursor at end
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+      }, 0);
+    });
+  }
+
+  // Selection methods
+  private clearSelection() {
+    this.selectionStart.set(null);
+    this.selectionEnd.set(null);
+  }
+
+  private extendSelectionFrom(startCell: { docId: string; path: string }, endCell: { docId: string; path: string }) {
+    if (!this.selectionStart()) {
+      this.selectionStart.set(startCell);
+    }
+    this.selectionEnd.set(endCell);
+  }
+
+  getSelectedCells(): Array<{ docId: string; path: string }> {
+    const start = this.selectionStart();
+    const end = this.selectionEnd();
+
+    if (!start || !end) {
+      const focused = this.focusedCell();
+      return focused ? [focused] : [];
+    }
+
+    const docs = this.processedDocuments();
+    const columns = this.visibleColumns();
+
+    const startRowIdx = docs.findIndex(d => d.id === start.docId);
+    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const startColIdx = columns.indexOf(start.path);
+    const endColIdx = columns.indexOf(end.path);
+
+    const minRow = Math.min(startRowIdx, endRowIdx);
+    const maxRow = Math.max(startRowIdx, endRowIdx);
+    const minCol = Math.min(startColIdx, endColIdx);
+    const maxCol = Math.max(startColIdx, endColIdx);
+
+    const cells: Array<{ docId: string; path: string }> = [];
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        cells.push({ docId: docs[r].id, path: columns[c] });
+      }
+    }
+    return cells;
+  }
+
+  isCellInSelection(docId: string, path: string): boolean {
+    const start = this.selectionStart();
+    const end = this.selectionEnd();
+
+    if (!start || !end) return false;
+
+    const docs = this.processedDocuments();
+    const columns = this.visibleColumns();
+
+    const cellRowIdx = docs.findIndex(d => d.id === docId);
+    const cellColIdx = columns.indexOf(path);
+
+    const startRowIdx = docs.findIndex(d => d.id === start.docId);
+    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const startColIdx = columns.indexOf(start.path);
+    const endColIdx = columns.indexOf(end.path);
+
+    const minRow = Math.min(startRowIdx, endRowIdx);
+    const maxRow = Math.max(startRowIdx, endRowIdx);
+    const minCol = Math.min(startColIdx, endColIdx);
+    const maxCol = Math.max(startColIdx, endColIdx);
+
+    return cellRowIdx >= minRow && cellRowIdx <= maxRow &&
+           cellColIdx >= minCol && cellColIdx <= maxCol;
+  }
+
+  private async copySelection() {
+    const cells = this.getSelectedCells();
+    if (cells.length === 0) return;
+
+    const docs = this.processedDocuments();
+    const columns = this.visibleColumns();
+
+    // Group by row for TSV format
+    const start = this.selectionStart() || this.focusedCell();
+    const end = this.selectionEnd() || this.focusedCell();
+
+    if (!start || !end) return;
+
+    const startRowIdx = docs.findIndex(d => d.id === start.docId);
+    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const startColIdx = columns.indexOf(start.path);
+    const endColIdx = columns.indexOf(end.path);
+
+    const minRow = Math.min(startRowIdx, endRowIdx);
+    const maxRow = Math.max(startRowIdx, endRowIdx);
+    const minCol = Math.min(startColIdx, endColIdx);
+    const maxCol = Math.max(startColIdx, endColIdx);
+
+    const rows: string[] = [];
+    for (let r = minRow; r <= maxRow; r++) {
+      const rowValues: string[] = [];
+      for (let c = minCol; c <= maxCol; c++) {
+        const value = this.getCellValue(docs[r], columns[c]);
+        rowValues.push(value === null || value === undefined ? '' : String(value));
+      }
+      rows.push(rowValues.join('\t'));
+    }
+
+    const text = rows.join('\n');
+    await navigator.clipboard.writeText(text);
+  }
+
+  private async pasteToSelection() {
+    const cells = this.getSelectedCells();
+    if (cells.length === 0) return;
+
+    try {
+      const text = await navigator.clipboard.readText();
+      const docs = this.processedDocuments();
+
+      // Parse pasted text (could be single value or TSV)
+      const rows = text.split('\n').map(row => row.split('\t'));
+
+      if (rows.length === 1 && rows[0].length === 1) {
+        // Single value - apply to all selected cells
+        const value = rows[0][0];
+        for (const cell of cells) {
+          if (!isSystemField(cell.path)) {
+            this.queryStore.updateDocumentField(cell.docId, cell.path, value);
+          }
+        }
+      } else {
+        // Multi-cell paste - match dimensions
+        const columns = this.visibleColumns();
+        const start = this.selectionStart() || this.focusedCell();
+        if (!start) return;
+
+        const startRowIdx = docs.findIndex(d => d.id === start.docId);
+        const startColIdx = columns.indexOf(start.path);
+
+        for (let r = 0; r < rows.length && startRowIdx + r < docs.length; r++) {
+          for (let c = 0; c < rows[r].length && startColIdx + c < columns.length; c++) {
+            const docId = docs[startRowIdx + r].id;
+            const path = columns[startColIdx + c];
+            if (!isSystemField(path)) {
+              this.queryStore.updateDocumentField(docId, path, rows[r][c]);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to paste:', err);
     }
   }
 
@@ -1563,9 +1863,86 @@ export class ResultsTableComponent {
     });
   }
 
+  onCellMouseDown(docId: string, path: string, event: MouseEvent) {
+    // Ignore right-click
+    if (event.button !== 0) return;
+
+    const newCell = { docId, path };
+
+    if (event.shiftKey && this.focusedCell()) {
+      // Shift+click extends selection from focused cell
+      this.selectionStart.set(this.focusedCell());
+      this.selectionEnd.set(newCell);
+      this.focusedCell.set(newCell);
+    } else {
+      // Start potential drag selection
+      this.isDragging.set(true);
+      this.selectionStart.set(newCell);
+      this.selectionEnd.set(newCell);
+      this.focusedCell.set(newCell);
+    }
+  }
+
+  onCellMouseEnter(docId: string, path: string) {
+    // Extend selection while dragging
+    if (this.isDragging()) {
+      const newCell = { docId, path };
+      this.selectionEnd.set(newCell);
+      this.focusedCell.set(newCell);
+    }
+  }
+
+  @HostListener('document:mouseup')
+  onDocumentMouseUp() {
+    if (this.isDragging()) {
+      this.isDragging.set(false);
+      // If start and end are the same, clear selection (single cell click)
+      const start = this.selectionStart();
+      const end = this.selectionEnd();
+      if (start && end && start.docId === end.docId && start.path === end.path) {
+        this.selectionStart.set(null);
+        this.selectionEnd.set(null);
+      }
+    }
+  }
+
   onCellClick(docId: string, path: string, event: MouseEvent) {
-    // Don't interfere with double-click for editing
-    this.focusedCell.set({ docId, path });
+    // Click is now handled by mousedown, but keep for double-click compatibility
+  }
+
+  onRowNumberClick(docId: string, event: MouseEvent) {
+    event.preventDefault();
+    const columns = this.visibleColumns();
+    if (columns.length === 0) return;
+
+    const firstCol = columns[0];
+    const lastCol = columns[columns.length - 1];
+
+    // Select entire row
+    this.selectionStart.set({ docId, path: firstCol });
+    this.selectionEnd.set({ docId, path: lastCol });
+    this.focusedCell.set({ docId, path: firstCol });
+  }
+
+  isRowSelected(docId: string): boolean {
+    const start = this.selectionStart();
+    const end = this.selectionEnd();
+    if (!start || !end) return false;
+
+    // Check if the entire row is selected
+    const columns = this.visibleColumns();
+    if (columns.length === 0) return false;
+
+    const docs = this.processedDocuments();
+    const startRowIdx = docs.findIndex(d => d.id === start.docId);
+    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const rowIdx = docs.findIndex(d => d.id === docId);
+
+    const minRow = Math.min(startRowIdx, endRowIdx);
+    const maxRow = Math.max(startRowIdx, endRowIdx);
+
+    // Row is selected if it's in the selection range
+    return rowIdx >= minRow && rowIdx <= maxRow;
   }
 
   isCellFocused(docId: string, path: string): boolean {
