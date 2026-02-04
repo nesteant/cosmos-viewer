@@ -220,7 +220,8 @@ import { ImportExportService } from '../import-export/import-export.service';
                 *matCellDef="let doc; let i = index"
                 class="row-num-cell"
                 [class.row-selected]="isRowSelected(doc.id)"
-                (mousedown)="onRowNumberClick(doc.id, $event)"
+                (mousedown)="onRowNumberMouseDown(doc.id, $event)"
+                (mouseenter)="onRowNumberMouseEnter(doc.id)"
               >
                 {{ i + 1 }}
               </td>
@@ -364,6 +365,20 @@ import { ImportExportService } from '../import-export/import-export.service';
             [style.top.px]="contextMenu()!.y"
             (contextmenu)="$event.preventDefault()"
           >
+            @if (hasSelection() && getSelectionCount() > 1) {
+              <div class="context-menu-header">
+                {{ getSelectionCount() }} rows selected
+              </div>
+              <button class="context-menu-item" (click)="onExportSelectionJson(); closeContextMenu()">
+                <mat-icon>code</mat-icon>
+                Export Selection as JSON
+              </button>
+              <button class="context-menu-item" (click)="onExportSelectionCsv(); closeContextMenu()">
+                <mat-icon>table_chart</mat-icon>
+                Export Selection as CSV
+              </button>
+              <div class="context-menu-divider"></div>
+            }
             @if (queryStore.isDocumentDirty(contextMenu()!.doc.id)) {
               <button class="context-menu-item" (click)="onSaveDocument(contextMenu()!.doc); closeContextMenu()">
                 <mat-icon>save</mat-icon>
@@ -775,8 +790,19 @@ import { ImportExportService } from '../import-export/import-export.service';
           0 8px 32px rgba(0, 0, 0, 0.5),
           0 0 0 1px rgba(255, 255, 255, 0.1);
         padding: 4px 0;
-        min-width: 180px;
+        min-width: 200px;
         z-index: 1000;
+      }
+
+      .context-menu-header {
+        padding: 8px 16px;
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.5);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        margin-bottom: 4px;
       }
 
       .context-menu-item {
@@ -1904,23 +1930,77 @@ export class ResultsTableComponent {
         this.selectionEnd.set(null);
       }
     }
+
+    if (this.isRowDragging()) {
+      this.isRowDragging.set(false);
+      this.rowDragStartDocId.set(null);
+    }
   }
 
   onCellClick(docId: string, path: string, event: MouseEvent) {
     // Click is now handled by mousedown, but keep for double-click compatibility
   }
 
-  onRowNumberClick(docId: string, event: MouseEvent) {
+  // Track if we're dragging from row numbers
+  isRowDragging = signal(false);
+  rowDragStartDocId = signal<string | null>(null);
+
+  onRowNumberMouseDown(docId: string, event: MouseEvent) {
+    // Ignore right-click
+    if (event.button !== 0) return;
     event.preventDefault();
+
     const columns = this.visibleColumns();
     if (columns.length === 0) return;
 
     const firstCol = columns[0];
     const lastCol = columns[columns.length - 1];
+    const docs = this.processedDocuments();
 
-    // Select entire row
-    this.selectionStart.set({ docId, path: firstCol });
-    this.selectionEnd.set({ docId, path: lastCol });
+    if (event.shiftKey && this.selectionStart()) {
+      // Shift+click: extend selection to include all rows from start to clicked row
+      const start = this.selectionStart()!;
+      const startRowIdx = docs.findIndex(d => d.id === start.docId);
+      const clickedRowIdx = docs.findIndex(d => d.id === docId);
+
+      const minRowIdx = Math.min(startRowIdx, clickedRowIdx);
+      const maxRowIdx = Math.max(startRowIdx, clickedRowIdx);
+
+      // Keep the original start row, extend to clicked row
+      this.selectionStart.set({ docId: docs[minRowIdx].id, path: firstCol });
+      this.selectionEnd.set({ docId: docs[maxRowIdx].id, path: lastCol });
+      this.focusedCell.set({ docId, path: firstCol });
+    } else {
+      // Start row drag selection
+      this.isRowDragging.set(true);
+      this.rowDragStartDocId.set(docId);
+      this.selectionStart.set({ docId, path: firstCol });
+      this.selectionEnd.set({ docId, path: lastCol });
+      this.focusedCell.set({ docId, path: firstCol });
+    }
+  }
+
+  onRowNumberMouseEnter(docId: string) {
+    if (!this.isRowDragging()) return;
+
+    const columns = this.visibleColumns();
+    if (columns.length === 0) return;
+
+    const firstCol = columns[0];
+    const lastCol = columns[columns.length - 1];
+    const docs = this.processedDocuments();
+
+    const startDocId = this.rowDragStartDocId();
+    if (!startDocId) return;
+
+    const startRowIdx = docs.findIndex(d => d.id === startDocId);
+    const currentRowIdx = docs.findIndex(d => d.id === docId);
+
+    const minRowIdx = Math.min(startRowIdx, currentRowIdx);
+    const maxRowIdx = Math.max(startRowIdx, currentRowIdx);
+
+    this.selectionStart.set({ docId: docs[minRowIdx].id, path: firstCol });
+    this.selectionEnd.set({ docId: docs[maxRowIdx].id, path: lastCol });
     this.focusedCell.set({ docId, path: firstCol });
   }
 
@@ -1943,6 +2023,51 @@ export class ResultsTableComponent {
 
     // Row is selected if it's in the selection range
     return rowIdx >= minRow && rowIdx <= maxRow;
+  }
+
+  getSelectedDocuments(): CosmosDocument[] {
+    const start = this.selectionStart();
+    const end = this.selectionEnd();
+    if (!start || !end) return [];
+
+    const docs = this.processedDocuments();
+    const startRowIdx = docs.findIndex(d => d.id === start.docId);
+    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+
+    const minRow = Math.min(startRowIdx, endRowIdx);
+    const maxRow = Math.max(startRowIdx, endRowIdx);
+
+    return docs.slice(minRow, maxRow + 1);
+  }
+
+  hasSelection(): boolean {
+    return this.selectionStart() !== null && this.selectionEnd() !== null;
+  }
+
+  getSelectionCount(): number {
+    return this.getSelectedDocuments().length;
+  }
+
+  onExportSelectionJson() {
+    const cont = this.container();
+    if (!cont) return;
+
+    const docs = this.getSelectedDocuments();
+    if (docs.length === 0) return;
+
+    const filename = `${cont.databaseId}_${cont.name}_selection`;
+    this.importExportService.exportToJson(docs, filename);
+  }
+
+  onExportSelectionCsv() {
+    const cont = this.container();
+    if (!cont) return;
+
+    const docs = this.getSelectedDocuments();
+    if (docs.length === 0) return;
+
+    const filename = `${cont.databaseId}_${cont.name}_selection`;
+    this.importExportService.exportToCsv(docs, filename);
   }
 
   isCellFocused(docId: string, path: string): boolean {
