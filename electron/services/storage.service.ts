@@ -67,11 +67,19 @@ interface TablePreferencesData {
   tabs: Record<string, TabColumnState>;
 }
 
+interface AppSettingsData {
+  allowPrerelease: boolean;
+  autoCheckUpdates: boolean;
+  fontSize: number;
+  editorFontSize: number;
+}
+
 interface StoreSchema {
   connections: DatabaseConnectionData[];
   layoutPreferences: LayoutPreferences;
   tabsPreferences: TabsPreferences;
   tablePreferences: TablePreferencesData;
+  appSettings: AppSettingsData;
 }
 
 const DEFAULT_LAYOUT: LayoutPreferences = {
@@ -89,6 +97,13 @@ const DEFAULT_TABS: TabsPreferences = {
 const DEFAULT_TABLE_PREFERENCES: TablePreferencesData = {
   containers: {},
   tabs: {},
+};
+
+const DEFAULT_APP_SETTINGS: AppSettingsData = {
+  allowPrerelease: true,
+  autoCheckUpdates: true,
+  fontSize: 13,
+  editorFontSize: 14,
 };
 
 const store = new Store<StoreSchema>({
@@ -151,6 +166,16 @@ const store = new Store<StoreSchema>({
       default: DEFAULT_TABLE_PREFERENCES,
       additionalProperties: true,
     },
+    appSettings: {
+      type: 'object',
+      default: DEFAULT_APP_SETTINGS,
+      properties: {
+        allowPrerelease: { type: 'boolean' },
+        autoCheckUpdates: { type: 'boolean' },
+        fontSize: { type: 'number' },
+        editorFontSize: { type: 'number' },
+      },
+    },
   },
 });
 
@@ -192,4 +217,12 @@ export function getTablePreferences(): TablePreferencesData {
 
 export function saveTablePreferences(prefs: TablePreferencesData): void {
   store.set('tablePreferences', prefs);
+}
+
+export function getAppSettings(): AppSettingsData {
+  return store.get('appSettings', DEFAULT_APP_SETTINGS);
+}
+
+export function saveAppSettings(settings: AppSettingsData): void {
+  store.set('appSettings', settings);
 }

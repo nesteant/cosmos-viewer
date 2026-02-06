@@ -6,3 +6,4 @@ export * from './tree-node.model';
 export * from './layout.model';
 export * from './tabs.model';
 export * from './column-preferences.model';
+export * from './app-settings.model';

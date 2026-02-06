@@ -15,6 +15,7 @@ import {
   AnalyzeQueryParams,
   AnalyzeQueryResult,
   TablePreferencesStorage,
+  AppSettings,
 } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -162,5 +163,22 @@ export class ElectronService {
 
   async saveTablePreferences(prefs: TablePreferencesStorage): Promise<void> {
     return this.api.table.savePreferences(prefs);
+  }
+
+  // App settings
+  async getAppSettings(): Promise<AppSettings> {
+    return this.api.settings.get();
+  }
+
+  async saveAppSettings(settings: AppSettings): Promise<void> {
+    return this.api.settings.save(settings);
+  }
+
+  async applyUpdaterSettings(settings: { allowPrerelease: boolean }): Promise<void> {
+    return this.api.updater.applySettings(settings);
+  }
+
+  onSettingsOpen(callback: () => void): void {
+    this.api.settings.onOpen(callback);
   }
 }

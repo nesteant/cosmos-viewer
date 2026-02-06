@@ -28,6 +28,12 @@ $cosmos-theme: mat.m2-define-dark-theme((
   @include mat.table-density(-4);
 }
 
+// CSS custom properties for font sizes (set by AppComponent)
+:root {
+  --app-font-size: 13px;
+  --editor-font-size: 14px;
+}
+
 // Global styles
 * {
   font-family: 'JetBrains Mono', monospace;
@@ -37,6 +43,7 @@ html, body {
   height: 100%;
   margin: 0;
   font-family: 'JetBrains Mono', monospace;
+  font-size: var(--app-font-size);
 }
 
 button, input, textarea, select {

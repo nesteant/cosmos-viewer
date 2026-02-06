@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu } from 'electron';
 import * as path from 'path';
 import { registerIpcHandlers } from './services/ipc-handlers';
+import { initAutoUpdater, registerUpdaterIpcHandlers } from './services/updater.service';
 
 const isDev = process.env['NODE_ENV'] === 'development';
 let mainWindow: BrowserWindow | null = null;
@@ -63,6 +64,30 @@ function createAppMenu(): void {
       submenu: [
         { role: 'about' },
         { type: 'separator' },
+        {
+          label: 'Preferences...',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send('settings:open');
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Check for Updates...',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send('updater:checking');
+            }
+            import('electron-updater').then(({ autoUpdater }) => {
+              autoUpdater.checkForUpdates().catch((err: Error) => {
+                console.error('Manual update check failed:', err);
+              });
+            });
+          },
+        },
+        { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
         { role: 'hide' },
@@ -124,11 +149,16 @@ function createAppMenu(): void {
 
 // Register IPC handlers before app is ready
 registerIpcHandlers();
+registerUpdaterIpcHandlers();
 
 // App lifecycle
 app.whenReady().then(() => {
   createAppMenu();
   createWindow();
+
+  if (mainWindow) {
+    initAutoUpdater(mainWindow);
+  }
 
   app.on('activate', () => {
     // On macOS, re-create window when dock icon is clicked

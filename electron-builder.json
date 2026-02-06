@@ -28,5 +28,10 @@
     "oneClick": false,
     "perMachine": true,
     "allowToChangeInstallationDirectory": true
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "nesteant",
+    "repo": "cosmos-viewer"
   }
 }

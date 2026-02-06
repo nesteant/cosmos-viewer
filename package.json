@@ -42,6 +42,7 @@
     "@ngrx/signals": "^19.0.0",
     "angular-split": "^20.0.0",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.7.3",
     "json5": "^2.2.3",
     "mongodb": "^7.0.0",
     "ngx-monaco-editor-v2": "^19.0.0",

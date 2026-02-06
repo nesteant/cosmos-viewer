@@ -169,6 +169,32 @@ export interface ElectronAPI {
       }>;
     }) => Promise<void>;
   };
+  updater: {
+    checkForUpdates: () => Promise<void>;
+    downloadUpdate: () => Promise<void>;
+    installUpdate: () => Promise<void>;
+    onUpdateAvailable: (callback: (info: { version: string }) => void) => void;
+    onUpdateNotAvailable: (callback: () => void) => void;
+    onDownloadProgress: (callback: (progress: { percent: number }) => void) => void;
+    onUpdateDownloaded: (callback: () => void) => void;
+    onError: (callback: (error: string) => void) => void;
+    applySettings: (settings: { allowPrerelease: boolean }) => Promise<void>;
+  };
+  settings: {
+    get: () => Promise<{
+      allowPrerelease: boolean;
+      autoCheckUpdates: boolean;
+      fontSize: number;
+      editorFontSize: number;
+    }>;
+    save: (settings: {
+      allowPrerelease: boolean;
+      autoCheckUpdates: boolean;
+      fontSize: number;
+      editorFontSize: number;
+    }) => Promise<void>;
+    onOpen: (callback: () => void) => void;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -202,6 +228,22 @@ const electronAPI: ElectronAPI = {
   table: {
     getPreferences: () => ipcRenderer.invoke('table:get-preferences'),
     savePreferences: (prefs) => ipcRenderer.invoke('table:save-preferences', prefs),
+  },
+  updater: {
+    checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+    downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+    installUpdate: () => ipcRenderer.invoke('updater:install'),
+    onUpdateAvailable: (callback) => { ipcRenderer.on('updater:update-available', (_, info) => callback(info)); },
+    onUpdateNotAvailable: (callback) => { ipcRenderer.on('updater:update-not-available', () => callback()); },
+    onDownloadProgress: (callback) => { ipcRenderer.on('updater:download-progress', (_, progress) => callback(progress)); },
+    onUpdateDownloaded: (callback) => { ipcRenderer.on('updater:update-downloaded', () => callback()); },
+    onError: (callback) => { ipcRenderer.on('updater:error', (_, error) => callback(error)); },
+    applySettings: (settings) => ipcRenderer.invoke('updater:apply-settings', settings),
+  },
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    save: (settings) => ipcRenderer.invoke('settings:save', settings),
+    onOpen: (callback) => { ipcRenderer.on('settings:open', () => callback()); },
   },
 };
 

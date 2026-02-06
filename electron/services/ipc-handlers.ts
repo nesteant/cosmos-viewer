@@ -10,6 +10,8 @@ import {
   saveTabsPreferences,
   getTablePreferences,
   saveTablePreferences,
+  getAppSettings,
+  saveAppSettings,
 } from './storage.service';
 
 /**
@@ -232,6 +234,25 @@ export function registerIpcHandlers(): void {
       saveTablePreferences(prefs);
     } catch (error: unknown) {
       console.error('Failed to save table preferences:', error);
+      throw error;
+    }
+  });
+
+  // App settings handlers
+  ipcMain.handle('settings:get', async () => {
+    try {
+      return getAppSettings();
+    } catch (error: unknown) {
+      console.error('Failed to get app settings:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('settings:save', async (_, settings) => {
+    try {
+      saveAppSettings(settings);
+    } catch (error: unknown) {
+      console.error('Failed to save app settings:', error);
       throw error;
     }
   });
