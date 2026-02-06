@@ -137,11 +137,29 @@ export interface TypeOption {
 
 const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ISO 8601 date patterns
+// Full: 2024-01-15T10:30:00.000Z or 2024-01-15T10:30:00+05:30
+// Date only: 2024-01-15
+// With milliseconds: 2024-01-15T10:30:00.123Z
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})?)?$/;
+
 /**
  * Check if a string is a valid GUID format
  */
 export function isValidGuid(value: string): boolean {
   return GUID_PATTERN.test(value);
+}
+
+/**
+ * Check if a string is a valid ISO 8601 date format
+ */
+export function isValidIsoDate(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value)) {
+    return false;
+  }
+  // Also verify it's a valid date by parsing
+  const date = new Date(value);
+  return !isNaN(date.getTime());
 }
 
 /**

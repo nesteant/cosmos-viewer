@@ -12,7 +12,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ContainerInfo, CosmosDocument, ColumnLayout, SortDirection, createContainerKey } from '@core/models';
 import { TablePreferencesService } from '@core/services';
-import { detectApplicableTypes, getSpecialOptions, isValidGuid, TypeOption, FieldType } from '@core/utils/json-flattener';
+import { detectApplicableTypes, getSpecialOptions, isValidGuid, isValidIsoDate, TypeOption, FieldType } from '@core/utils/json-flattener';
 import { getValueAtPath, stringToPath, isSystemField } from '@core/utils/path-utils';
 import { ConfirmDialogComponent, CellFormatterComponent } from '@shared/components';
 import { ExplorerStore, QueryStore } from '../../store';
@@ -44,9 +44,13 @@ import { ImportExportService } from '../import-export/import-export.service';
         <div class="toolbar-left">
           @if (queryStore.getDirtyDocumentCount() > 0) {
             <span class="dirty-indicator">
-              {{ queryStore.getDirtyDocumentCount() }} unsaved change(s)
+              @if (queryStore.pendingDeleteCount() > 0) {
+                {{ queryStore.getDirtyDocumentCount() }} change(s) ({{ queryStore.pendingDeleteCount() }} deletion(s))
+              } @else {
+                {{ queryStore.getDirtyDocumentCount() }} unsaved change(s)
+              }
             </span>
-            <button mat-stroked-button color="primary" (click)="onSaveAll()">
+            <button mat-flat-button class="save-all-btn" (click)="onSaveAll()">
               <mat-icon>save</mat-icon>
               Save All
             </button>
@@ -319,6 +323,9 @@ import { ImportExportService } from '../import-export/import-export.service';
                         @if (isValidGuidValue) {
                           <span class="guid-badge" matTooltip="Valid GUID format" matTooltipPosition="above">G✓</span>
                         }
+                        @if (isValidIsoDateValue) {
+                          <span class="date-badge" matTooltip="Valid ISO 8601 date" matTooltipPosition="above">D✓</span>
+                        }
                         <span class="chip-divider"></span>
                         @for (opt of specialOptions; track opt.type) {
                           <button
@@ -352,6 +359,7 @@ import { ImportExportService } from '../import-export/import-export.service';
               mat-row
               *matRowDef="let row; columns: allColumns()"
               [class.dirty-row]="queryStore.isDocumentDirty(row.id)"
+              [class.pending-delete-row]="isMarkedForDeletion(row)"
               (contextmenu)="onRowContextMenu($event, row)"
             ></tr>
           </table>
@@ -379,7 +387,14 @@ import { ImportExportService } from '../import-export/import-export.service';
               </button>
               <div class="context-menu-divider"></div>
             }
-            @if (queryStore.isDocumentDirty(contextMenu()!.doc.id)) {
+            @if (isMarkedForDeletion(contextMenu()!.doc)) {
+              <button class="context-menu-item restore" (click)="restoreFromDeletion(contextMenu()!.doc); closeContextMenu()">
+                <mat-icon>restore</mat-icon>
+                Restore (Cancel Delete)
+              </button>
+              <div class="context-menu-divider"></div>
+            }
+            @if (queryStore.isDocumentDirty(contextMenu()!.doc.id) && !isMarkedForDeletion(contextMenu()!.doc)) {
               <button class="context-menu-item" (click)="onSaveDocument(contextMenu()!.doc); closeContextMenu()">
                 <mat-icon>save</mat-icon>
                 Save Changes
@@ -390,19 +405,21 @@ import { ImportExportService } from '../import-export/import-export.service';
               </button>
               <div class="context-menu-divider"></div>
             }
-            <button class="context-menu-item" (click)="onViewJson(contextMenu()!.doc); closeContextMenu()">
-              <mat-icon>code</mat-icon>
-              View/Edit JSON
-            </button>
-            <button class="context-menu-item" (click)="onDuplicateDocument(contextMenu()!.doc); closeContextMenu()">
-              <mat-icon>content_copy</mat-icon>
-              Duplicate
-            </button>
-            <div class="context-menu-divider"></div>
-            <button class="context-menu-item delete" (click)="onDeleteDocument(contextMenu()!.doc); closeContextMenu()">
-              <mat-icon>delete</mat-icon>
-              Delete
-            </button>
+            @if (!isMarkedForDeletion(contextMenu()!.doc)) {
+              <button class="context-menu-item" (click)="onViewJson(contextMenu()!.doc); closeContextMenu()">
+                <mat-icon>code</mat-icon>
+                View/Edit JSON
+              </button>
+              <button class="context-menu-item" (click)="onDuplicateDocument(contextMenu()!.doc); closeContextMenu()">
+                <mat-icon>content_copy</mat-icon>
+                Duplicate
+              </button>
+              <div class="context-menu-divider"></div>
+              <button class="context-menu-item delete" (click)="onMarkForDeletion(contextMenu()!.doc); closeContextMenu()">
+                <mat-icon>delete</mat-icon>
+                Delete
+              </button>
+            }
           </div>
         }
       } @else if (!queryStore.isExecuting()) {
@@ -454,6 +471,15 @@ import { ImportExportService } from '../import-export/import-export.service';
         padding: 4px 8px;
         background: rgba(255, 183, 77, 0.1);
         border-radius: 4px;
+      }
+
+      .save-all-btn {
+        background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%) !important;
+        color: white !important;
+      }
+
+      .save-all-btn:hover {
+        background: linear-gradient(135deg, #66bb6a 0%, #43a047 100%) !important;
       }
 
       .toolbar-left button,
@@ -626,6 +652,26 @@ import { ImportExportService } from '../import-export/import-export.service';
         background: rgba(255, 183, 77, 0.05);
       }
 
+      tr.pending-delete-row {
+        background: rgba(244, 67, 54, 0.15) !important;
+        opacity: 0.7;
+      }
+
+      tr.pending-delete-row td {
+        color: rgba(255, 255, 255, 0.5) !important;
+        text-decoration: line-through !important;
+        background: rgba(244, 67, 54, 0.15) !important;
+      }
+
+      tr.pending-delete-row td .cell-value,
+      tr.pending-delete-row td app-cell-formatter {
+        text-decoration: line-through !important;
+      }
+
+      tr.pending-delete-row:hover {
+        opacity: 0.9;
+      }
+
       /* Key column highlighting */
       .id-column {
         background: rgba(255, 193, 7, 0.08);
@@ -763,6 +809,15 @@ import { ImportExportService } from '../import-export/import-export.service';
         border-radius: 4px;
       }
 
+      .date-badge {
+        font-size: 10px;
+        font-weight: 600;
+        color: #4fc3f7;
+        background: rgba(3, 169, 244, 0.15);
+        padding: 3px 8px;
+        border-radius: 4px;
+      }
+
       .chip-divider {
         width: 1px;
         height: 20px;
@@ -837,6 +892,14 @@ import { ImportExportService } from '../import-export/import-export.service';
 
       .context-menu-item.delete mat-icon {
         color: #f44336;
+      }
+
+      .context-menu-item.restore {
+        color: #4caf50;
+      }
+
+      .context-menu-item.restore mat-icon {
+        color: #4caf50;
       }
 
       .context-menu-divider {
@@ -1195,6 +1258,7 @@ export class ResultsTableComponent {
   specialOptions: TypeOption[] = getSpecialOptions();
   selectedType: FieldType = 'string';
   isValidGuidValue = false;
+  isValidIsoDateValue = false;
 
   // Column resizing
   private columnWidthsMap = signal<Record<string, number>>({});
@@ -1568,6 +1632,13 @@ export class ResultsTableComponent {
       return;
     }
 
+    // Handle Delete/Backspace key
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      this.handleDeleteKey();
+      return;
+    }
+
     const isNavKey = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Tab'].includes(event.key);
 
     // Type to edit: if a cell is focused and user types a printable character, start editing
@@ -1695,7 +1766,22 @@ export class ResultsTableComponent {
     this.editingValue = char;
 
     this.updateApplicableTypes(this.editingValue, false);
-    this.selectedType = 'string';
+
+    // Try to preserve the original type if the typed character is compatible
+    const originalType = this.getTypeFromValue(value);
+
+    // If original was a number and user typed a digit or minus, keep number type
+    if (originalType === 'number' && /^[\d\-.]$/.test(char)) {
+      this.selectedType = 'number';
+    }
+    // If original was boolean and user typed 't' or 'f', keep boolean
+    else if (originalType === 'boolean' && /^[tf]$/i.test(char)) {
+      this.selectedType = 'boolean';
+    }
+    // Otherwise use the first applicable type based on the new input
+    else {
+      this.selectedType = this.applicableTypes[0]?.type ?? 'string';
+    }
 
     requestAnimationFrame(() => {
       setTimeout(() => {
@@ -1823,13 +1909,30 @@ export class ResultsTableComponent {
     try {
       const text = await navigator.clipboard.readText();
       const docs = this.processedDocuments();
+      const trimmedText = text.trim();
 
-      // Parse pasted text (could be single value or TSV)
-      const rows = text.split('\n').map(row => row.split('\t'));
+      // Check if pasted content is a JSON object or array
+      if (this.isJsonContent(trimmedText)) {
+        // Paste JSON into single focused cell
+        const focused = this.focusedCell();
+        if (focused && !isSystemField(focused.path)) {
+          try {
+            const jsonValue = JSON.parse(trimmedText);
+            this.queryStore.updateDocumentField(focused.docId, focused.path, jsonValue);
+          } catch {
+            // If JSON parse fails, paste as string
+            this.queryStore.updateDocumentField(focused.docId, focused.path, trimmedText);
+          }
+        }
+        return;
+      }
+
+      // Smart line detection: parse as TSV only if lines look like tabular data
+      const rows = this.parseClipboardAsRows(text);
 
       if (rows.length === 1 && rows[0].length === 1) {
         // Single value - apply to all selected cells
-        const value = rows[0][0];
+        const value = this.parseClipboardValue(rows[0][0]);
         for (const cell of cells) {
           if (!isSystemField(cell.path)) {
             this.queryStore.updateDocumentField(cell.docId, cell.path, value);
@@ -1849,7 +1952,8 @@ export class ResultsTableComponent {
             const docId = docs[startRowIdx + r].id;
             const path = columns[startColIdx + c];
             if (!isSystemField(path)) {
-              this.queryStore.updateDocumentField(docId, path, rows[r][c]);
+              const value = this.parseClipboardValue(rows[r][c]);
+              this.queryStore.updateDocumentField(docId, path, value);
             }
           }
         }
@@ -1857,6 +1961,95 @@ export class ResultsTableComponent {
     } catch (err) {
       console.error('Failed to paste:', err);
     }
+  }
+
+  // Check if content looks like a JSON object or array
+  private isJsonContent(text: string): boolean {
+    const trimmed = text.trim();
+    // Check if it starts/ends like JSON object or array
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        JSON.parse(trimmed);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // Parse clipboard text into rows, being smart about line breaks in JSON
+  private parseClipboardAsRows(text: string): string[][] {
+    // Split by newlines but be careful about quoted content
+    const lines: string[] = [];
+    let currentLine = '';
+    let inQuotes = false;
+    let braceDepth = 0;
+    let bracketDepth = 0;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const prevChar = i > 0 ? text[i - 1] : '';
+
+      // Track quotes (but not escaped ones)
+      if (char === '"' && prevChar !== '\\') {
+        inQuotes = !inQuotes;
+      }
+
+      // Track braces and brackets when not in quotes
+      if (!inQuotes) {
+        if (char === '{') braceDepth++;
+        if (char === '}') braceDepth--;
+        if (char === '[') bracketDepth++;
+        if (char === ']') bracketDepth--;
+      }
+
+      // Only split on newline if we're not inside JSON structure or quotes
+      if (char === '\n' && !inQuotes && braceDepth === 0 && bracketDepth === 0) {
+        lines.push(currentLine);
+        currentLine = '';
+      } else if (char !== '\r') {
+        currentLine += char;
+      }
+    }
+
+    // Don't forget the last line
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    // Split each line by tabs
+    return lines.map(line => line.split('\t'));
+  }
+
+  // Parse clipboard value to appropriate type
+  private parseClipboardValue(value: string): any {
+    const trimmed = value.trim();
+
+    // Try to parse as JSON first (for objects, arrays, booleans, numbers)
+    if (this.isJsonContent(trimmed)) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        // Fall through to string
+      }
+    }
+
+    // Check for number
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      return parseFloat(trimmed);
+    }
+
+    // Check for boolean
+    if (trimmed.toLowerCase() === 'true') return true;
+    if (trimmed.toLowerCase() === 'false') return false;
+
+    // Check for null
+    if (trimmed.toLowerCase() === 'null') return null;
+
+    // Return as string
+    return value;
   }
 
   private scrollToFocusedCell() {
@@ -1934,6 +2127,8 @@ export class ResultsTableComponent {
     if (this.isRowDragging()) {
       this.isRowDragging.set(false);
       this.rowDragStartDocId.set(null);
+      // Focus table for keyboard events after row selection
+      this.refocusTable();
     }
   }
 
@@ -1978,6 +2173,9 @@ export class ResultsTableComponent {
       this.selectionEnd.set({ docId, path: lastCol });
       this.focusedCell.set({ docId, path: firstCol });
     }
+
+    // Focus the table wrapper so keyboard events work
+    this.refocusTable();
   }
 
   onRowNumberMouseEnter(docId: string) {
@@ -2070,6 +2268,67 @@ export class ResultsTableComponent {
     this.importExportService.exportToCsv(docs, filename);
   }
 
+  // Handle Delete key press
+  private handleDeleteKey() {
+    const start = this.selectionStart();
+    const end = this.selectionEnd();
+    const focused = this.focusedCell();
+    const columns = this.visibleColumns();
+
+    // Check if entire rows are selected (selection spans all columns)
+    let isFullRowSelection = false;
+    if (start && end && columns.length > 0) {
+      const startColIdx = columns.indexOf(start.path);
+      const endColIdx = columns.indexOf(end.path);
+      const minCol = Math.min(startColIdx, endColIdx);
+      const maxCol = Math.max(startColIdx, endColIdx);
+      // Full row if selection spans from first to last column
+      isFullRowSelection = minCol === 0 && maxCol === columns.length - 1;
+    }
+
+    if (isFullRowSelection) {
+      // Mark selected rows for deletion
+      const selectedDocs = this.getSelectedDocuments();
+      if (selectedDocs.length > 0) {
+        this.queryStore.markForDeletion(selectedDocs);
+        // Clear selection after marking
+        this.clearSelection();
+        this.focusedCell.set(null);
+      }
+    } else {
+      // Clear selected cells (set field to undefined)
+      const cells = this.getSelectedCells();
+      if (cells.length === 0 && focused) {
+        // Single focused cell
+        if (!isSystemField(focused.path)) {
+          this.queryStore.updateDocumentField(focused.docId, focused.path, undefined);
+        }
+      } else {
+        // Multiple cells selected
+        for (const cell of cells) {
+          if (!isSystemField(cell.path)) {
+            this.queryStore.updateDocumentField(cell.docId, cell.path, undefined);
+          }
+        }
+      }
+    }
+  }
+
+  // Check if document is marked for deletion
+  isMarkedForDeletion(doc: CosmosDocument): boolean {
+    return this.queryStore.isMarkedForDeletion(doc);
+  }
+
+  // Restore a document from pending deletion
+  restoreFromDeletion(doc: CosmosDocument) {
+    this.queryStore.unmarkForDeletion([doc]);
+  }
+
+  // Mark a single document for deletion (from context menu)
+  onMarkForDeletion(doc: CosmosDocument) {
+    this.queryStore.markForDeletion([doc]);
+  }
+
   isCellFocused(docId: string, path: string): boolean {
     const focused = this.focusedCell();
     return focused?.docId === docId && focused?.path === path;
@@ -2143,6 +2402,7 @@ export class ResultsTableComponent {
     const previousType = this.selectedType;
     this.applicableTypes = detectApplicableTypes(value);
     this.isValidGuidValue = isValidGuid(value);
+    this.isValidIsoDateValue = isValidIsoDate(value);
 
     // If user had a special type selected (delete/null) but now typed actual content,
     // automatically switch to the most appropriate value-based type

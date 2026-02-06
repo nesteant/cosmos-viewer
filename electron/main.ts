@@ -1,7 +1,8 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu } from 'electron';
 import * as path from 'path';
 import { registerIpcHandlers } from './services/ipc-handlers';
 
+const isDev = process.env['NODE_ENV'] === 'development';
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
@@ -26,8 +27,21 @@ function createWindow(): void {
     mainWindow?.show();
   });
 
+  // Disable reload in production to prevent hanging
+  if (!isDev) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      // Block Cmd+R, Ctrl+R, F5, Cmd+Shift+R, Ctrl+Shift+R
+      if (
+        (input.key === 'r' && (input.meta || input.control)) ||
+        input.key === 'F5'
+      ) {
+        event.preventDefault();
+      }
+    });
+  }
+
   // Load the Angular app
-  if (process.env['NODE_ENV'] === 'development') {
+  if (isDev) {
     mainWindow.loadURL('http://localhost:4200');
     mainWindow.webContents.openDevTools();
   } else {
@@ -41,11 +55,79 @@ function createWindow(): void {
   });
 }
 
+// Create application menu (removes default reload menu items in production)
+function createAppMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: isDev
+        ? [
+            { role: 'reload' },
+            { role: 'forceReload' },
+            { role: 'toggleDevTools' },
+            { type: 'separator' },
+            { role: 'resetZoom' },
+            { role: 'zoomIn' },
+            { role: 'zoomOut' },
+            { type: 'separator' },
+            { role: 'togglefullscreen' },
+          ]
+        : [
+            // No reload options in production
+            { role: 'resetZoom' },
+            { role: 'zoomIn' },
+            { role: 'zoomOut' },
+            { type: 'separator' },
+            { role: 'togglefullscreen' },
+          ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 // Register IPC handlers before app is ready
 registerIpcHandlers();
 
 // App lifecycle
 app.whenReady().then(() => {
+  createAppMenu();
   createWindow();
 
   app.on('activate', () => {

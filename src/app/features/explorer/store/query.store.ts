@@ -13,7 +13,7 @@ import {
 } from '@core/models';
 import { ElectronService, NotificationService } from '@core/services';
 import { detectColumns } from '@core/utils';
-import { DiffTracker, DocumentChange } from '@core/utils/diff-tracker';
+import { DiffTracker, DocumentChange, createDocumentKey, extractPartitionKeyValue } from '@core/utils/diff-tracker';
 
 /**
  * Parse Cosmos DB error and return user-friendly message
@@ -72,6 +72,8 @@ export interface TabQueryState {
   error: string | null;
   executionTime: number | null;
   requestCharge: number | null;
+  pendingDeletes: Set<string>; // Composite keys (id::partitionKeyValue) marked for deletion
+  partitionKeyPath: string | null; // Partition key path for this container
 }
 
 export interface QueryState {
@@ -91,6 +93,8 @@ const createInitialTabState = (query = 'SELECT * FROM c'): TabQueryState => ({
   error: null,
   executionTime: null,
   requestCharge: null,
+  pendingDeletes: new Set(),
+  partitionKeyPath: null,
 });
 
 const initialState: QueryState = {
@@ -175,6 +179,16 @@ export const QueryStore = signalStore(
       if (!tabId) return false;
       const state = store.tabStates()[tabId];
       return state?.hasMoreResults && !state?.isLoadingMore;
+    }),
+    pendingDeletes: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return new Set<string>();
+      return store.tabStates()[tabId]?.pendingDeletes ?? new Set<string>();
+    }),
+    pendingDeleteCount: computed(() => {
+      const tabId = store.activeTabId();
+      if (!tabId) return 0;
+      return store.tabStates()[tabId]?.pendingDeletes?.size ?? 0;
     }),
   })),
   withMethods((store) => {
@@ -262,6 +276,10 @@ export const QueryStore = signalStore(
         const tabState = store.tabStates()[tabId];
         const query = tabState?.query ?? 'SELECT * FROM c';
 
+        // Store partition key path and set it on the tracker
+        const partitionKeyPath = container.partitionKeyPath;
+        diffTracker.setPartitionKeyPath(partitionKeyPath);
+
         updateTabState(tabId, {
           isExecuting: true,
           error: null,
@@ -271,6 +289,8 @@ export const QueryStore = signalStore(
           hasMoreResults: false,
           executionTime: null,
           requestCharge: null,
+          pendingDeletes: new Set(), // Clear pending deletes on new query
+          partitionKeyPath,
         });
 
         diffTracker.clear();
@@ -413,7 +433,9 @@ export const QueryStore = signalStore(
       getDirtyDocumentCount(): number {
         const tabId = store.activeTabId();
         if (!tabId) return 0;
-        return getDiffTracker(tabId).getDirtyCount();
+        const dirtyCount = getDiffTracker(tabId).getDirtyCount();
+        const deleteCount = store.tabStates()[tabId]?.pendingDeletes?.size ?? 0;
+        return dirtyCount + deleteCount;
       },
 
       getAllDirtyDocuments() {
@@ -453,7 +475,64 @@ export const QueryStore = signalStore(
         const documents = (tabState?.documents ?? []).map((doc) => {
           return diffTracker.getModifiedDocument(doc.id) ?? doc;
         });
-        updateTabState(tabId, { documents });
+        // Also clear pending deletes
+        updateTabState(tabId, { documents, pendingDeletes: new Set() });
+      },
+
+      // Mark documents for deletion (soft delete) using composite keys
+      markForDeletion(documents: CosmosDocument[]) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
+        const tabState = store.tabStates()[tabId];
+        const partitionKeyPath = tabState?.partitionKeyPath ?? null;
+        const currentDeletes = new Set(tabState?.pendingDeletes ?? []);
+
+        documents.forEach(doc => {
+          const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
+          const key = createDocumentKey(doc.id, pkValue);
+          currentDeletes.add(key);
+        });
+
+        updateTabState(tabId, { pendingDeletes: currentDeletes });
+      },
+
+      // Unmark documents for deletion
+      unmarkForDeletion(documents: CosmosDocument[]) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
+        const tabState = store.tabStates()[tabId];
+        const partitionKeyPath = tabState?.partitionKeyPath ?? null;
+        const currentDeletes = new Set(tabState?.pendingDeletes ?? []);
+
+        documents.forEach(doc => {
+          const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
+          const key = createDocumentKey(doc.id, pkValue);
+          currentDeletes.delete(key);
+        });
+
+        updateTabState(tabId, { pendingDeletes: currentDeletes });
+      },
+
+      // Check if a document is marked for deletion
+      isMarkedForDeletion(doc: CosmosDocument): boolean {
+        const tabId = store.activeTabId();
+        if (!tabId) return false;
+
+        const tabState = store.tabStates()[tabId];
+        const partitionKeyPath = tabState?.partitionKeyPath ?? null;
+        const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
+        const key = createDocumentKey(doc.id, pkValue);
+
+        return tabState?.pendingDeletes?.has(key) ?? false;
+      },
+
+      // Get all document keys marked for deletion
+      getDocumentsMarkedForDeletion(): string[] {
+        const tabId = store.activeTabId();
+        if (!tabId) return [];
+        return Array.from(store.tabStates()[tabId]?.pendingDeletes ?? []);
       },
 
       async saveDocument(container: ContainerInfo, documentId: string) {
@@ -506,11 +585,21 @@ export const QueryStore = signalStore(
         if (!tabId) return;
 
         const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
         const dirtyDocs = diffTracker.getAllDirtyDocuments();
+        const pendingDeleteKeys = new Set(tabState?.pendingDeletes ?? []);
+        const partitionKeyPath = tabState?.partitionKeyPath ?? null;
+        const documents = tabState?.documents ?? [];
+
         let savedCount = 0;
+        let deletedCount = 0;
         let errorCount = 0;
 
+        // Save modified documents (skip those marked for deletion)
         for (const dirty of dirtyDocs) {
+          const pkValue = extractPartitionKeyValue(dirty.modified, partitionKeyPath ?? undefined);
+          const key = createDocumentKey(dirty.modified.id, pkValue);
+          if (pendingDeleteKeys.has(key)) continue;
           try {
             await this.saveDocument(container, dirty.modified.id);
             savedCount++;
@@ -519,11 +608,34 @@ export const QueryStore = signalStore(
           }
         }
 
-        if (errorCount === 0) {
-          notificationService.success(`Saved ${savedCount} document(s)`);
-        } else {
+        // Delete documents marked for deletion
+        // Find actual documents from the keys
+        for (const doc of documents) {
+          const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
+          const key = createDocumentKey(doc.id, pkValue);
+          if (pendingDeleteKeys.has(key)) {
+            try {
+              await this.deleteDocument(container, doc.id);
+              deletedCount++;
+            } catch {
+              errorCount++;
+            }
+          }
+        }
+
+        // Clear pending deletes after processing
+        updateTabState(tabId, { pendingDeletes: new Set() });
+
+        // Show appropriate notification
+        const actions: string[] = [];
+        if (savedCount > 0) actions.push(`saved ${savedCount}`);
+        if (deletedCount > 0) actions.push(`deleted ${deletedCount}`);
+
+        if (errorCount === 0 && actions.length > 0) {
+          notificationService.success(`Successfully ${actions.join(', ')} document(s)`);
+        } else if (errorCount > 0) {
           notificationService.warn(
-            `Saved ${savedCount}, failed ${errorCount} document(s)`
+            `${actions.join(', ')}, failed ${errorCount} document(s)`
           );
         }
       },
