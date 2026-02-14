@@ -293,7 +293,8 @@ export class WelcomePanelComponent {
   containerSelected = output<ContainerInfo>();
 
   getContainers(databaseId: string): ContainerInfo[] {
-    return this.explorerStore.containers().get(databaseId) ?? [];
+    const containers = this.explorerStore.containers().get(databaseId) ?? [];
+    return [...containers].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   hasExpandedContainers(): boolean {

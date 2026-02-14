@@ -15,6 +15,70 @@ import {
 } from './storage.service';
 
 /**
+ * Get document ID (supports both CosmosSQL 'id' and MongoDB '_id' with EJSON)
+ */
+function getDocumentId(doc: any): string {
+  // CosmosSQL uses 'id'
+  if (doc.id !== undefined) return doc.id;
+
+  // MongoDB uses '_id' which can be a complex EJSON object
+  const id = doc._id;
+  if (id === null || id === undefined) return '';
+
+  // Handle string/number directly
+  if (typeof id === 'string') return id;
+  if (typeof id === 'number') return String(id);
+
+  // Handle Extended JSON object formats
+  if (typeof id === 'object') {
+    // ObjectId: { "$oid": "..." }
+    if (id.$oid) return id.$oid;
+
+    // UUID: { "$uuid": "..." }
+    if (id.$uuid) return id.$uuid;
+
+    // Binary (UUID subtype): { "$binary": { "base64": "...", "subType": "04" } }
+    if (id.$binary) {
+      const subType = id.$binary.subType;
+      if (subType === '03' || subType === '04' || subType === 3 || subType === 4) {
+        return binaryToUuid(id.$binary.base64);
+      }
+      return id.$binary.base64 || JSON.stringify(id);
+    }
+
+    // NumberLong: { "$numberLong": "..." }
+    if (id.$numberLong) return id.$numberLong;
+
+    // Fallback: stringify
+    return JSON.stringify(id);
+  }
+
+  return String(id);
+}
+
+/**
+ * Convert base64 binary to UUID string
+ */
+function binaryToUuid(base64: string): string {
+  try {
+    const binaryStr = Buffer.from(base64, 'base64').toString('binary');
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    if (bytes.length !== 16) {
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  } catch {
+    return base64;
+  }
+}
+
+/**
  * Register all IPC handlers for main process communication
  */
 export function registerIpcHandlers(): void {
@@ -151,11 +215,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('db:update-document', async (_, params) => {
     try {
       const provider = providerManager.getForConnection(params.connectionId);
+      // Support both CosmosSQL 'id' and MongoDB '_id'
+      const documentId = getDocumentId(params.document);
       return await provider.updateDocument({
         connectionId: params.connectionId,
         databaseId: params.databaseId,
         collectionId: params.containerId,
-        documentId: params.document.id,
+        documentId,
         document: params.document,
         options: { partitionKey: params.partitionKey },
       });

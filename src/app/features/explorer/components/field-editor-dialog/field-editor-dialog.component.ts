@@ -9,7 +9,7 @@ import {
 import { MatIconModule } from '@angular/material/icon';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { detectApplicableTypes, getSpecialOptions, isValidGuid, TypeOption, FieldType } from '@core/utils/json-flattener';
+import { detectApplicableTypes, getSpecialOptions, isValidGuid, uuidToBinaryEjson, TypeOption, FieldType } from '@core/utils/json-flattener';
 
 export interface FieldEditorDialogData {
   fieldPath: string;
@@ -17,6 +17,10 @@ export interface FieldEditorDialogData {
   documentId: string;
   mode?: 'json' | 'text';
 }
+
+// Maximum content length before we show a warning or use simpler editor options
+const LARGE_CONTENT_THRESHOLD = 50000; // 50KB
+const VERY_LARGE_CONTENT_THRESHOLD = 200000; // 200KB
 
 @Component({
   selector: 'app-field-editor-dialog',
@@ -69,6 +73,12 @@ export interface FieldEditorDialogData {
           }
         </div>
       }
+      @if (isLargeContent) {
+        <div class="large-content-warning">
+          <mat-icon>warning</mat-icon>
+          <span>Large content ({{ contentSizeKb }}KB) - some editor features disabled for performance</span>
+        </div>
+      }
       <div class="editor-wrapper">
         <ngx-monaco-editor
           class="field-editor"
@@ -78,6 +88,12 @@ export interface FieldEditorDialogData {
         ></ngx-monaco-editor>
       </div>
     </mat-dialog-content>
+    @if (uuidDetected()) {
+      <div class="uuid-hint">
+        <mat-icon>info</mat-icon>
+        UUID detected - will be saved as MongoDB Binary format
+      </div>
+    }
     @if (error()) {
       <div class="error-message">
         <mat-icon>error</mat-icon>
@@ -93,6 +109,15 @@ export interface FieldEditorDialogData {
         <button mat-button (click)="onFormat()" [disabled]="!isValidJson()">
           <mat-icon>auto_fix_high</mat-icon>
           Format
+        </button>
+        <button
+          mat-button
+          (click)="onConvertUuids()"
+          [disabled]="!isValidJson()"
+          matTooltip="Toggle between UUID string and MongoDB Binary format"
+        >
+          <mat-icon>swap_horiz</mat-icon>
+          UUID ↔ Binary
         </button>
       }
       <button mat-button (click)="dialogRef.close()">Cancel</button>
@@ -216,6 +241,24 @@ export interface FieldEditorDialogData {
         bottom: 0;
       }
 
+      .large-content-warning {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: rgba(255, 193, 7, 0.15);
+        color: #ffc107;
+        font-size: 11px;
+        border-bottom: 1px solid rgba(255, 193, 7, 0.3);
+        flex-shrink: 0;
+      }
+
+      .large-content-warning mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+
       .error-message {
         display: flex;
         align-items: center;
@@ -228,6 +271,23 @@ export interface FieldEditorDialogData {
       }
 
       .error-message mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
+
+      .uuid-hint {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: rgba(156, 39, 176, 0.15);
+        color: #ce93d8;
+        font-size: 12px;
+        border-top: 1px solid rgba(156, 39, 176, 0.3);
+      }
+
+      .uuid-hint mat-icon {
         font-size: 16px;
         width: 16px;
         height: 16px;
@@ -255,6 +315,10 @@ export class FieldEditorDialogComponent implements OnInit {
   isTextMode = false;
   isValidJson = signal(true);
   error = signal<string | null>(null);
+  uuidDetected = signal(false);
+  isLargeContent = false;
+  isVeryLargeContent = false;
+  contentSizeKb = 0;
 
   // Type selection for text mode
   applicableTypes: TypeOption[] = [];
@@ -289,6 +353,31 @@ export class FieldEditorDialogComponent implements OnInit {
       this.updateApplicableTypes(false);
     } else {
       this.content = JSON.stringify(this.data.value, null, 2);
+    }
+
+    // Check content size and adjust editor for large content
+    this.contentSizeKb = Math.round(this.content.length / 1024);
+    this.isLargeContent = this.content.length > LARGE_CONTENT_THRESHOLD;
+    this.isVeryLargeContent = this.content.length > VERY_LARGE_CONTENT_THRESHOLD;
+
+    if (this.isLargeContent) {
+      // Disable expensive features for large content
+      this.editorOptions = {
+        ...this.editorOptions,
+        wordWrap: 'off', // Disable word wrap for performance
+        folding: false,
+        renderLineHighlight: 'none',
+        renderIndentGuides: false,
+        occurrencesHighlight: false,
+        selectionHighlight: false,
+        matchBrackets: 'never',
+        quickSuggestions: false,
+        suggestOnTriggerCharacters: false,
+        acceptSuggestionOnEnter: 'off',
+        hover: { enabled: false },
+        links: false,
+        colorDecorators: false,
+      };
     }
   }
 
@@ -352,6 +441,174 @@ export class FieldEditorDialogComponent implements OnInit {
     }
   }
 
+  onConvertUuids() {
+    if (this.isTextMode) return;
+
+    const trimmed = this.content.trim();
+
+    // Case 1: Plain UUID string - wrap to Binary
+    if (isValidGuid(trimmed)) {
+      const converted = uuidToBinaryEjson(trimmed);
+      this.content = JSON.stringify(converted, null, 2);
+      this.isValidJson.set(true);
+      this.uuidDetected.set(false);
+      this.error.set(null);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(this.content);
+
+      // Case 2: Single Binary UUID object - unwrap to plain UUID string
+      if (this.isBinaryUuid(parsed)) {
+        const uuid = this.binaryToUuid(parsed);
+        this.content = uuid;
+        this.isValidJson.set(true);
+        this.uuidDetected.set(true);
+        this.error.set(null);
+        return;
+      }
+
+      // Case 3: Complex object - detect direction and convert
+      const hasBinaryUuids = this.containsBinaryUuids(parsed);
+      const hasPlainUuids = this.containsPlainUuids(parsed);
+
+      let converted;
+      if (hasBinaryUuids && !hasPlainUuids) {
+        // Unwrap: Binary → Plain UUID strings
+        converted = this.unwrapUuidsRecursively(parsed);
+      } else {
+        // Wrap: Plain UUID strings → Binary
+        converted = this.wrapUuidsRecursively(parsed);
+      }
+
+      this.content = JSON.stringify(converted, null, 2);
+      this.isValidJson.set(true);
+      this.error.set(null);
+    } catch (e) {
+      // Keep current content if invalid
+    }
+  }
+
+  /**
+   * Check if value is a MongoDB Binary UUID
+   */
+  private isBinaryUuid(value: any): boolean {
+    if (!value || typeof value !== 'object') return false;
+    if ('$binary' in value) {
+      const subType = value.$binary?.subType;
+      return subType === '04' || subType === '03' || subType === 4 || subType === 3;
+    }
+    if ('$uuid' in value) return true;
+    return false;
+  }
+
+  /**
+   * Convert MongoDB Binary to UUID string
+   */
+  private binaryToUuid(value: any): string {
+    if (value.$uuid) return value.$uuid;
+
+    if (value.$binary?.base64) {
+      try {
+        const bytes = atob(value.$binary.base64);
+        const hex = Array.from(bytes, (c: string) =>
+          c.charCodeAt(0).toString(16).padStart(2, '0')
+        ).join('');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+      } catch {
+        return JSON.stringify(value);
+      }
+    }
+    return JSON.stringify(value);
+  }
+
+  /**
+   * Check if object contains any Binary UUIDs
+   */
+  private containsBinaryUuids(value: any): boolean {
+    if (value === null || value === undefined) return false;
+    if (this.isBinaryUuid(value)) return true;
+    if (Array.isArray(value)) return value.some(item => this.containsBinaryUuids(item));
+    if (typeof value === 'object') {
+      return Object.values(value).some(v => this.containsBinaryUuids(v));
+    }
+    return false;
+  }
+
+  /**
+   * Check if object contains any plain UUID strings
+   */
+  private containsPlainUuids(value: any): boolean {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string' && isValidGuid(value)) return true;
+    if (Array.isArray(value)) return value.some(item => this.containsPlainUuids(item));
+    if (typeof value === 'object') {
+      // Skip EJSON types
+      if ('$binary' in value || '$oid' in value || '$date' in value) return false;
+      return Object.values(value).some(v => this.containsPlainUuids(v));
+    }
+    return false;
+  }
+
+  /**
+   * Recursively unwrap Binary UUIDs to plain UUID strings
+   */
+  private unwrapUuidsRecursively(value: any): any {
+    if (value === null || value === undefined) return value;
+
+    // Convert Binary UUID to string
+    if (this.isBinaryUuid(value)) {
+      return this.binaryToUuid(value);
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(item => this.unwrapUuidsRecursively(item));
+    }
+
+    if (typeof value === 'object') {
+      const result: Record<string, any> = {};
+      for (const [key, val] of Object.entries(value)) {
+        result[key] = this.unwrapUuidsRecursively(val);
+      }
+      return result;
+    }
+
+    return value;
+  }
+
+  /**
+   * Recursively wrap plain UUID strings to Binary format
+   */
+  private wrapUuidsRecursively(value: any): any {
+    if (value === null || value === undefined) return value;
+
+    // Convert UUID string to Binary
+    if (typeof value === 'string' && isValidGuid(value)) {
+      return uuidToBinaryEjson(value);
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(item => this.wrapUuidsRecursively(item));
+    }
+
+    if (typeof value === 'object') {
+      // Skip EJSON types
+      if ('$binary' in value || '$oid' in value || '$date' in value ||
+          '$numberLong' in value || '$numberDecimal' in value || '$regex' in value || '$uuid' in value) {
+        return value;
+      }
+
+      const result: Record<string, any> = {};
+      for (const [key, val] of Object.entries(value)) {
+        result[key] = this.wrapUuidsRecursively(val);
+      }
+      return result;
+    }
+
+    return value;
+  }
+
   onSave() {
     if (this.isTextMode) {
       // Use the selected type option to get the converted value
@@ -367,6 +624,15 @@ export class FieldEditorDialogComponent implements OnInit {
       return;
     }
 
+    const trimmed = this.content.trim();
+
+    // Check if it's a plain UUID string (not JSON) - convert to MongoDB Binary
+    if (isValidGuid(trimmed)) {
+      this.dialogRef.close(uuidToBinaryEjson(trimmed));
+      return;
+    }
+
+    // Try to parse as JSON
     try {
       const parsed = JSON.parse(this.content);
       this.dialogRef.close(parsed);
@@ -377,6 +643,18 @@ export class FieldEditorDialogComponent implements OnInit {
   }
 
   private validateJson() {
+    const trimmed = this.content.trim();
+
+    // A plain UUID is valid - will be converted to Binary on save
+    if (isValidGuid(trimmed)) {
+      this.isValidJson.set(true);
+      this.error.set(null);
+      this.uuidDetected.set(true);
+      return;
+    }
+
+    this.uuidDetected.set(false);
+
     try {
       JSON.parse(this.content);
       this.isValidJson.set(true);

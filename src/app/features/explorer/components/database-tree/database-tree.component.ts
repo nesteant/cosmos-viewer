@@ -226,7 +226,8 @@ export class DatabaseTreeComponent implements OnInit {
   }
 
   getContainers(databaseId: string): ContainerInfo[] {
-    return this.explorerStore.containers().get(databaseId) ?? [];
+    const containers = this.explorerStore.containers().get(databaseId) ?? [];
+    return [...containers].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   hasLoadedContainers(databaseId: string): boolean {

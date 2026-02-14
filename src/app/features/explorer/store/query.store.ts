@@ -16,10 +16,69 @@ import { detectColumns } from '@core/utils';
 import { DiffTracker, DocumentChange, createDocumentKey, extractPartitionKeyValue } from '@core/utils/diff-tracker';
 
 /**
- * Get document ID (supports both 'id' for CosmosSQL and '_id' for MongoDB)
+ * Get document ID (supports both 'id' for CosmosSQL and '_id' for MongoDB with EJSON)
  */
 function getDocId(doc: CosmosDocument): string {
-  return doc.id ?? (doc as any)._id?.toString() ?? '';
+  // CosmosSQL uses 'id'
+  if (doc.id !== undefined) return doc.id;
+
+  // MongoDB uses '_id' which can be a complex EJSON object
+  const id = (doc as any)._id;
+  if (id === null || id === undefined) return '';
+
+  // Handle string/number directly
+  if (typeof id === 'string') return id;
+  if (typeof id === 'number') return String(id);
+
+  // Handle Extended JSON object formats
+  if (typeof id === 'object') {
+    // ObjectId: { "$oid": "507f1f77bcf86cd799439011" }
+    if (id.$oid) return id.$oid;
+
+    // UUID: { "$uuid": "550e8400-e29b-41d4-a716-446655440000" }
+    if (id.$uuid) return id.$uuid;
+
+    // Binary (including UUID subtype): { "$binary": { "base64": "...", "subType": "04" } }
+    if (id.$binary) {
+      const subType = id.$binary.subType;
+      // SubType 03 = UUID (old), 04 = UUID (new)
+      if (subType === '03' || subType === '04' || subType === 3 || subType === 4) {
+        return binaryToUuid(id.$binary.base64);
+      }
+      // For other binary types, use base64 as identifier
+      return id.$binary.base64 || JSON.stringify(id);
+    }
+
+    // NumberLong: { "$numberLong": "12345" }
+    if (id.$numberLong) return id.$numberLong;
+
+    // Fallback: stringify the object
+    return JSON.stringify(id);
+  }
+
+  return String(id);
+}
+
+/**
+ * Convert base64 binary to UUID string
+ */
+function binaryToUuid(base64: string): string {
+  try {
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    if (bytes.length !== 16) {
+      return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  } catch {
+    return base64;
+  }
 }
 
 /**

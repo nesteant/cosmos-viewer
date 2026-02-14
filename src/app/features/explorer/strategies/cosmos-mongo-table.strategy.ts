@@ -428,8 +428,13 @@ export class CosmosMongoTableStrategy implements TableProviderStrategy {
 
       case 'uuid':
         if (typeof value === 'string' && UUID_PATTERN.test(value)) {
-          return { $uuid: value };
+          // Convert UUID string to binary format (subType 04)
+          return this.uuidToBinary(value);
         }
+        return value;
+
+      case 'binary':
+        // Binary values should be returned as-is (already in EJSON format)
         return value;
 
       case 'numberLong':
@@ -447,8 +452,47 @@ export class CosmosMongoTableStrategy implements TableProviderStrategy {
         }
         return value;
 
+      case 'regex':
+        // If it's already a regex object, return as-is
+        if (typeof value === 'object' && value.$regex) {
+          return value;
+        }
+        // If it's a string like /pattern/flags, parse it
+        if (typeof value === 'string') {
+          const match = value.match(/^\/(.*)\/([gimsuy]*)$/);
+          if (match) {
+            return { $regex: match[1], $options: match[2] || '' };
+          }
+        }
+        return value;
+
       default:
         return value;
+    }
+  }
+
+  /**
+   * Convert UUID string to MongoDB Binary EJSON format
+   */
+  private uuidToBinary(uuid: string): any {
+    try {
+      // Remove dashes and convert to bytes
+      const hex = uuid.replace(/-/g, '');
+      const bytes = new Uint8Array(16);
+      for (let i = 0; i < 16; i++) {
+        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+      }
+      // Convert to base64
+      const base64 = btoa(String.fromCharCode(...bytes));
+      return {
+        $binary: {
+          base64,
+          subType: '04' // UUID subtype
+        }
+      };
+    } catch {
+      // If conversion fails, return as $uuid format
+      return { $uuid: uuid };
     }
   }
 

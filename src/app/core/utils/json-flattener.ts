@@ -125,7 +125,7 @@ export function parseEditedValue(value: string, originalValue: any): any {
 /**
  * Type options for inline editing
  */
-export type FieldType = 'string' | 'number' | 'boolean' | 'null' | 'delete';
+export type FieldType = 'string' | 'number' | 'boolean' | 'null' | 'delete' | 'binaryUuid' | 'mongoDate';
 
 export interface TypeOption {
   type: FieldType;
@@ -136,6 +136,43 @@ export interface TypeOption {
 }
 
 const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Convert UUID string to MongoDB Binary EJSON format
+ */
+export function uuidToBinaryEjson(uuid: string): any {
+  try {
+    // Remove dashes and convert to bytes
+    const hex = uuid.replace(/-/g, '');
+    const bytes = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) {
+      bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    // Convert to base64
+    const base64 = btoa(String.fromCharCode(...bytes));
+    return {
+      $binary: {
+        base64,
+        subType: '04' // UUID subtype
+      }
+    };
+  } catch {
+    return uuid;
+  }
+}
+
+/**
+ * Convert ISO date string to MongoDB Date EJSON format
+ */
+export function dateToMongoEjson(dateStr: string): any {
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    return { $date: date.toISOString() };
+  } catch {
+    return dateStr;
+  }
+}
 
 // ISO 8601 date patterns
 // Full: 2024-01-15T10:30:00.000Z or 2024-01-15T10:30:00+05:30
@@ -235,6 +272,31 @@ export function detectApplicableTypes(input: string): TypeOption[] {
         color: '#42a5f5',
         value: num,
         description: 'Number',
+      });
+    }
+  }
+
+  // Check for GUID - offer MongoDB Binary UUID conversion
+  if (GUID_PATTERN.test(input)) {
+    types.push({
+      type: 'binaryUuid',
+      label: 'UUID',
+      color: '#9c27b0',
+      value: uuidToBinaryEjson(input),
+      description: 'MongoDB Binary UUID',
+    });
+  }
+
+  // Check for ISO date - offer MongoDB Date conversion
+  if (ISO_DATE_PATTERN.test(input)) {
+    const date = new Date(input);
+    if (!isNaN(date.getTime())) {
+      types.push({
+        type: 'mongoDate',
+        label: 'D',
+        color: '#00897b',
+        value: dateToMongoEjson(input),
+        description: 'MongoDB Date',
       });
     }
   }

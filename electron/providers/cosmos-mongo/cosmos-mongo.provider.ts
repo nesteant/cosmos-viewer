@@ -409,7 +409,8 @@ export class CosmosMongoProvider implements DatabaseProvider {
       const db = client.db(params.databaseId);
       const collection = db.collection(params.collectionId);
 
-      const doc = params.document as Document;
+      // Deserialize EJSON to native MongoDB types
+      const doc = EJSON.deserialize(params.document as Document) as Document;
       const result = await collection.insertOne(doc);
 
       // Get the inserted document
@@ -447,7 +448,9 @@ export class CosmosMongoProvider implements DatabaseProvider {
         filter = { _id: params.documentId as unknown } as Filter<Document>;
       }
 
-      const doc = params.document as Document;
+      // Deserialize EJSON to native MongoDB types
+      // This converts { $date: "..." } back to Date, { $oid: "..." } to ObjectId, etc.
+      const doc = EJSON.deserialize(params.document as Document) as Document;
 
       // Remove _id from the document to avoid immutable field error
       const { _id, ...updateDoc } = doc;
