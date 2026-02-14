@@ -16,6 +16,13 @@ import { detectColumns } from '@core/utils';
 import { DiffTracker, DocumentChange, createDocumentKey, extractPartitionKeyValue } from '@core/utils/diff-tracker';
 
 /**
+ * Get document ID (supports both 'id' for CosmosSQL and '_id' for MongoDB)
+ */
+function getDocId(doc: CosmosDocument): string {
+  return doc.id ?? (doc as any)._id?.toString() ?? '';
+}
+
+/**
  * Parse Cosmos DB error and return user-friendly message
  */
 function parseCosmosError(error: unknown): string {
@@ -306,7 +313,7 @@ export const QueryStore = signalStore(
           });
 
           const executionTime = Math.round(performance.now() - startTime);
-          const columns = detectColumns(result.documents);
+          const columns = detectColumns(result.documents, partitionKeyPath);
 
           result.documents.forEach((doc) => diffTracker.trackDocument(doc));
 
@@ -356,7 +363,7 @@ export const QueryStore = signalStore(
           result.documents.forEach((doc) => diffTracker.trackDocument(doc));
 
           const allDocuments = [...(tabState.documents ?? []), ...result.documents];
-          const columns = detectColumns(allDocuments);
+          const columns = detectColumns(allDocuments, container.partitionKeyPath);
 
           updateTabState(tabId, {
             documents: allDocuments,
@@ -403,7 +410,7 @@ export const QueryStore = signalStore(
         diffTracker.updateField(documentId, path, value);
 
         const documents = (tabState?.documents ?? []).map((doc) => {
-          if (doc.id === documentId) {
+          if (getDocId(doc) === documentId) {
             return diffTracker.getModifiedDocument(documentId) ?? doc;
           }
           return doc;
@@ -455,7 +462,7 @@ export const QueryStore = signalStore(
         const original = diffTracker.getModifiedDocument(documentId);
         if (original) {
           const documents = (tabState?.documents ?? []).map((doc) => {
-            if (doc.id === documentId) {
+            if (getDocId(doc) === documentId) {
               return original;
             }
             return doc;
@@ -473,7 +480,7 @@ export const QueryStore = signalStore(
 
         diffTracker.discardAllChanges();
         const documents = (tabState?.documents ?? []).map((doc) => {
-          return diffTracker.getModifiedDocument(doc.id) ?? doc;
+          return diffTracker.getModifiedDocument(getDocId(doc)) ?? doc;
         });
         // Also clear pending deletes
         updateTabState(tabId, { documents, pendingDeletes: new Set() });
@@ -490,7 +497,7 @@ export const QueryStore = signalStore(
 
         documents.forEach(doc => {
           const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
-          const key = createDocumentKey(doc.id, pkValue);
+          const key = createDocumentKey(getDocId(doc), pkValue);
           currentDeletes.add(key);
         });
 
@@ -508,7 +515,7 @@ export const QueryStore = signalStore(
 
         documents.forEach(doc => {
           const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
-          const key = createDocumentKey(doc.id, pkValue);
+          const key = createDocumentKey(getDocId(doc), pkValue);
           currentDeletes.delete(key);
         });
 
@@ -523,7 +530,7 @@ export const QueryStore = signalStore(
         const tabState = store.tabStates()[tabId];
         const partitionKeyPath = tabState?.partitionKeyPath ?? null;
         const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
-        const key = createDocumentKey(doc.id, pkValue);
+        const key = createDocumentKey(getDocId(doc), pkValue);
 
         return tabState?.pendingDeletes?.has(key) ?? false;
       },
@@ -564,7 +571,7 @@ export const QueryStore = signalStore(
 
           const tabState = store.tabStates()[tabId];
           const documents = (tabState?.documents ?? []).map((doc) => {
-            if (doc.id === documentId) {
+            if (getDocId(doc) === documentId) {
               return updated;
             }
             return doc;
@@ -598,10 +605,10 @@ export const QueryStore = signalStore(
         // Save modified documents (skip those marked for deletion)
         for (const dirty of dirtyDocs) {
           const pkValue = extractPartitionKeyValue(dirty.modified, partitionKeyPath ?? undefined);
-          const key = createDocumentKey(dirty.modified.id, pkValue);
+          const key = createDocumentKey(getDocId(dirty.modified), pkValue);
           if (pendingDeleteKeys.has(key)) continue;
           try {
-            await this.saveDocument(container, dirty.modified.id);
+            await this.saveDocument(container, getDocId(dirty.modified));
             savedCount++;
           } catch {
             errorCount++;
@@ -612,10 +619,10 @@ export const QueryStore = signalStore(
         // Find actual documents from the keys
         for (const doc of documents) {
           const pkValue = extractPartitionKeyValue(doc, partitionKeyPath ?? undefined);
-          const key = createDocumentKey(doc.id, pkValue);
+          const key = createDocumentKey(getDocId(doc), pkValue);
           if (pendingDeleteKeys.has(key)) {
             try {
-              await this.deleteDocument(container, doc.id);
+              await this.deleteDocument(container, getDocId(doc));
               deletedCount++;
             } catch {
               errorCount++;
@@ -649,7 +656,7 @@ export const QueryStore = signalStore(
 
         const diffTracker = getDiffTracker(tabId);
         const tabState = store.tabStates()[tabId];
-        const doc = tabState?.documents?.find((d) => d.id === documentId);
+        const doc = tabState?.documents?.find((d) => getDocId(d) === documentId);
         if (!doc) return;
 
         try {
@@ -669,9 +676,9 @@ export const QueryStore = signalStore(
           diffTracker.untrackDocument(documentId);
 
           const documents = (tabState?.documents ?? []).filter(
-            (d) => d.id !== documentId
+            (d) => getDocId(d) !== documentId
           );
-          const columns = detectColumns(documents);
+          const columns = detectColumns(documents, container.partitionKeyPath);
 
           updateTabState(tabId, { documents, columns });
           notificationService.success('Document deleted');
@@ -706,7 +713,7 @@ export const QueryStore = signalStore(
           diffTracker.trackDocument(created);
 
           const documents = [created, ...(tabState?.documents ?? [])];
-          const columns = detectColumns(documents);
+          const columns = detectColumns(documents, container.partitionKeyPath);
 
           updateTabState(tabId, { documents, columns });
           notificationService.success('Document created');
@@ -729,7 +736,30 @@ export const QueryStore = signalStore(
   })
 );
 
+/**
+ * Extract partition key value(s) from a document.
+ * For hierarchical partition keys (comma-separated paths), returns an array of values.
+ * For single partition keys, returns the single value.
+ */
 function getPartitionKeyValue(doc: CosmosDocument, partitionKeyPath: string): any {
+  // Check if this is a hierarchical partition key (comma-separated)
+  const paths = partitionKeyPath.split(',').map(p => p.trim());
+
+  if (paths.length > 1) {
+    // Hierarchical partition key - return array of values
+    return paths.map(pathStr => {
+      const path = pathStr.startsWith('/') ? pathStr.slice(1) : pathStr;
+      const segments = path.split('/');
+      let value: any = doc;
+      for (const segment of segments) {
+        if (value === null || value === undefined) return undefined;
+        value = value[segment];
+      }
+      return value;
+    });
+  }
+
+  // Single partition key
   const path = partitionKeyPath.startsWith('/')
     ? partitionKeyPath.slice(1)
     : partitionKeyPath;

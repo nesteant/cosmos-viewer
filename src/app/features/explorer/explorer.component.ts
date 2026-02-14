@@ -48,7 +48,7 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
             <div class="status-icons">
               <mat-icon
                 class="status-icon connected"
-                matTooltip="Connected"
+                [matTooltip]="connectionsStore.selectedConnection()?.name ?? 'Connected'"
               >cloud_done</mat-icon>
             </div>
           </div>

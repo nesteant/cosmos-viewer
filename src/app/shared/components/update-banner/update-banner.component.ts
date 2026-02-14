@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
-type UpdateState = 'idle' | 'available' | 'downloading' | 'downloaded';
+type UpdateState = 'idle' | 'available' | 'downloading' | 'downloaded' | 'error';
 
 @Component({
   selector: 'app-update-banner',
@@ -15,7 +15,7 @@ type UpdateState = 'idle' | 'available' | 'downloading' | 'downloaded';
       @case ('available') {
         <div class="update-banner">
           <span>Update available (v{{ version() }})</span>
-          <button mat-button color="primary" (click)="download()">Download</button>
+          <button mat-button class="banner-btn" (click)="download()">Download</button>
           <button mat-icon-button (click)="dismiss()">
             <mat-icon>close</mat-icon>
           </button>
@@ -30,7 +30,16 @@ type UpdateState = 'idle' | 'available' | 'downloading' | 'downloaded';
       @case ('downloaded') {
         <div class="update-banner">
           <span>Update ready — will install on next restart</span>
-          <button mat-button color="primary" (click)="install()">Restart Now</button>
+          <button mat-button class="banner-btn" (click)="install()">Restart Now</button>
+          <button mat-icon-button (click)="dismiss()">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      }
+      @case ('error') {
+        <div class="update-banner error">
+          <span>Update failed: {{ errorMessage() }}</span>
+          <button mat-button class="banner-btn" (click)="retry()">Retry</button>
           <button mat-icon-button (click)="dismiss()">
             <mat-icon>close</mat-icon>
           </button>
@@ -39,23 +48,41 @@ type UpdateState = 'idle' | 'available' | 'downloading' | 'downloaded';
     }
   `,
   styles: [`
+    :host {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      z-index: 9999;
+    }
+
+    .update-banner.error {
+      background: #5c1a1a;
+    }
+
     .update-banner {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 4px 16px;
+      padding: 8px 16px;
       background: #1a3a5c;
       color: #e0e0e0;
       font-size: 13px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
       -webkit-app-region: no-drag;
     }
 
     mat-progress-bar {
-      flex: 1;
+      width: 120px;
     }
 
     span {
       white-space: nowrap;
+    }
+
+    .banner-btn {
+      color: #90caf9;
+      font-weight: 500;
     }
   `],
 })
@@ -63,6 +90,7 @@ export class UpdateBannerComponent implements OnInit {
   state = signal<UpdateState>('idle');
   version = signal('');
   percent = signal(0);
+  errorMessage = signal('');
 
   constructor(private ngZone: NgZone) {}
 
@@ -92,7 +120,8 @@ export class UpdateBannerComponent implements OnInit {
     api.onError((error) => {
       console.error('Update error:', error);
       this.ngZone.run(() => {
-        this.state.set('idle');
+        this.errorMessage.set(error);
+        this.state.set('error');
       });
     });
   }
@@ -105,6 +134,12 @@ export class UpdateBannerComponent implements OnInit {
 
   install(): void {
     window.electronAPI.updater.installUpdate();
+  }
+
+  retry(): void {
+    this.state.set('downloading');
+    this.percent.set(0);
+    window.electronAPI.updater.downloadUpdate();
   }
 
   dismiss(): void {

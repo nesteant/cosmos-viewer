@@ -10,7 +10,19 @@
  */
 
 import { MongoClient, Db, Document, ObjectId, Filter } from 'mongodb';
+import { EJSON } from 'bson';
 import JSON5 from 'json5';
+
+/**
+ * Serialize MongoDB documents for IPC transfer.
+ * Converts ObjectId, Binary, Date, etc. to Extended JSON format
+ * that can survive Electron's structured clone algorithm.
+ */
+function serializeDocuments(docs: Document[]): Document[] {
+  // EJSON.serialize converts MongoDB types to Extended JSON format
+  // Then we parse it back to get plain objects that work with IPC
+  return JSON.parse(EJSON.stringify(docs));
+}
 import { DatabaseProvider, ProviderCapabilities } from '../base/provider.interface';
 import {
   ProviderType,
@@ -343,7 +355,8 @@ export class CosmosMongoProvider implements DatabaseProvider {
         const requestCharge = await this.getRequestCharge(db);
 
         return {
-          documents,
+          // Serialize documents for IPC (converts ObjectId, Binary, etc. to Extended JSON)
+          documents: serializeDocuments(documents),
           continuationToken: hasMoreResults ? String(skip + pageSize) : null,
           hasMoreResults,
           metadata: {
@@ -371,7 +384,8 @@ export class CosmosMongoProvider implements DatabaseProvider {
         const requestCharge = await this.getRequestCharge(db);
 
         return {
-          documents,
+          // Serialize documents for IPC (converts ObjectId, Binary, etc. to Extended JSON)
+          documents: serializeDocuments(documents),
           continuationToken: hasMoreResults ? String(skip + pageSize) : null,
           hasMoreResults,
           metadata: {
@@ -405,7 +419,8 @@ export class CosmosMongoProvider implements DatabaseProvider {
       const requestCharge = await this.getRequestCharge(db);
 
       return {
-        document: insertedDoc,
+        // Serialize document for IPC
+        document: insertedDoc ? serializeDocuments([insertedDoc])[0] : null,
         metadata: { requestCharge, insertedId: result.insertedId.toString() },
       };
     } catch (error: unknown) {
@@ -456,7 +471,8 @@ export class CosmosMongoProvider implements DatabaseProvider {
       const requestCharge = await this.getRequestCharge(db);
 
       return {
-        document: updatedDoc,
+        // Serialize document for IPC
+        document: updatedDoc ? serializeDocuments([updatedDoc])[0] : null,
         metadata: { requestCharge, modifiedCount: result.modifiedCount },
       };
     } catch (error: unknown) {

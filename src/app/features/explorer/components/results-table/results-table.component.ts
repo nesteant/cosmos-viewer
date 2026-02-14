@@ -13,9 +13,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { ContainerInfo, CosmosDocument, ColumnLayout, SortDirection, createContainerKey } from '@core/models';
 import { TablePreferencesService } from '@core/services';
 import { detectApplicableTypes, getSpecialOptions, isValidGuid, isValidIsoDate, TypeOption, FieldType } from '@core/utils/json-flattener';
-import { getValueAtPath, stringToPath, isSystemField } from '@core/utils/path-utils';
+import { getValueAtPath, stringToPath } from '@core/utils/path-utils';
 import { ConfirmDialogComponent, CellFormatterComponent } from '@shared/components';
 import { ExplorerStore, QueryStore } from '../../store';
+import { TableProviderStrategyFactory } from '../../strategies';
 import { JsonViewerDialogComponent } from '../json-viewer-dialog/json-viewer-dialog.component';
 import { DocumentDialogComponent } from '../document-dialog/document-dialog.component';
 import { FieldEditorDialogComponent } from '../field-editor-dialog/field-editor-dialog.component';
@@ -223,9 +224,9 @@ import { ImportExportService } from '../import-export/import-export.service';
                 mat-cell
                 *matCellDef="let doc; let i = index"
                 class="row-num-cell"
-                [class.row-selected]="isRowSelected(doc.id)"
-                (mousedown)="onRowNumberMouseDown(doc.id, $event)"
-                (mouseenter)="onRowNumberMouseEnter(doc.id)"
+                [class.row-selected]="isRowSelected(getDocId(doc))"
+                (mousedown)="onRowNumberMouseDown(getDocId(doc), $event)"
+                (mouseenter)="onRowNumberMouseEnter(getDocId(doc))"
               >
                 {{ i + 1 }}
               </td>
@@ -236,8 +237,8 @@ import { ImportExportService } from '../import-export/import-export.service';
                 <th
                   mat-header-cell
                   *matHeaderCellDef
-                  [class.id-column]="column === 'id'"
-                  [class.partition-key-column]="column === partitionKeyField() && column !== 'id'"
+                  [class.id-column]="isIdColumn(column)"
+                  [class.partition-key-column]="isPartitionKeyField(column) && !isIdColumn(column)"
                   [class.system-column]="isSystemField(column)"
                   [class.pinned-column]="isColumnPinned(column)"
                   [class.sortable]="true"
@@ -251,9 +252,9 @@ import { ImportExportService } from '../import-export/import-export.service';
                       @if (isColumnPinned(column)) {
                         <mat-icon class="pin-indicator">push_pin</mat-icon>
                       }
-                      @if (column === 'id') {
+                      @if (isIdColumn(column)) {
                         <mat-icon class="key-icon">key</mat-icon>
-                      } @else if (column === partitionKeyField()) {
+                      } @else if (isPartitionKeyField(column)) {
                         <mat-icon class="key-icon partition">dynamic_feed</mat-icon>
                       }
                       {{ getColumnLabel(column) }}
@@ -266,6 +267,7 @@ import { ImportExportService } from '../import-export/import-export.service';
                     <div
                       class="resize-handle"
                       (mousedown)="startResize($event, column); $event.stopPropagation()"
+                      (click)="$event.stopPropagation()"
                     ></div>
                   </div>
                   @if (showColumnFilters()) {
@@ -282,21 +284,21 @@ import { ImportExportService } from '../import-export/import-export.service';
                 <td
                   mat-cell
                   *matCellDef="let doc"
-                  [class.dirty]="queryStore.isFieldDirty(doc.id, column)"
+                  [class.dirty]="queryStore.isFieldDirty(getDocId(doc), column)"
                   [class.editable]="!isSystemField(column)"
-                  [class.cell-focused]="isCellFocused(doc.id, column)"
-                  [class.cell-selected]="isCellInSelection(doc.id, column)"
-                  [class.id-column]="column === 'id'"
-                  [class.partition-key-column]="column === partitionKeyField() && column !== 'id'"
+                  [class.cell-focused]="isCellFocused(getDocId(doc), column)"
+                  [class.cell-selected]="isCellInSelection(getDocId(doc), column)"
+                  [class.id-column]="isIdColumn(column)"
+                  [class.partition-key-column]="isPartitionKeyField(column) && !isIdColumn(column)"
                   [class.system-column]="isSystemField(column)"
                   [style.width.px]="columnWidths()[column]"
                   [style.min-width.px]="columnWidths()[column]"
                   [style.max-width.px]="columnWidths()[column]"
-                  (mousedown)="onCellMouseDown(doc.id, column, $event)"
-                  (mouseenter)="onCellMouseEnter(doc.id, column)"
+                  (mousedown)="onCellMouseDown(getDocId(doc), column, $event)"
+                  (mouseenter)="onCellMouseEnter(getDocId(doc), column)"
                   (dblclick)="startEditing(doc, column)"
                 >
-                  @if (editingCell?.docId === doc.id && editingCell?.path === column) {
+                  @if (editingCell?.docId === getDocId(doc) && editingCell?.path === column) {
                     <div class="inline-editor" (mousedown)="$event.stopPropagation()">
                       <input
                         #editInput
@@ -358,7 +360,7 @@ import { ImportExportService } from '../import-export/import-export.service';
             <tr
               mat-row
               *matRowDef="let row; columns: allColumns()"
-              [class.dirty-row]="queryStore.isDocumentDirty(row.id)"
+              [class.dirty-row]="queryStore.isDocumentDirty(getDocId(row))"
               [class.pending-delete-row]="isMarkedForDeletion(row)"
               (contextmenu)="onRowContextMenu($event, row)"
             ></tr>
@@ -394,7 +396,7 @@ import { ImportExportService } from '../import-export/import-export.service';
               </button>
               <div class="context-menu-divider"></div>
             }
-            @if (queryStore.isDocumentDirty(contextMenu()!.doc.id) && !isMarkedForDeletion(contextMenu()!.doc)) {
+            @if (queryStore.isDocumentDirty(getDocId(contextMenu()!.doc)) && !isMarkedForDeletion(contextMenu()!.doc)) {
               <button class="context-menu-item" (click)="onSaveDocument(contextMenu()!.doc); closeContextMenu()">
                 <mat-icon>save</mat-icon>
                 Save Changes
@@ -1232,8 +1234,12 @@ export class ResultsTableComponent {
   readonly queryStore = inject(QueryStore);
   private readonly explorerStore = inject(ExplorerStore);
   private readonly tablePrefs = inject(TablePreferencesService);
+  private readonly strategyFactory = inject(TableProviderStrategyFactory);
   private dialog = inject(MatDialog);
   private importExportService = inject(ImportExportService);
+
+  /** Current provider strategy for document handling */
+  readonly strategy = this.strategyFactory.currentStrategy;
 
   @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
   @ViewChild('tableWrapper') tableWrapper!: ElementRef<HTMLDivElement>;
@@ -1265,6 +1271,7 @@ export class ResultsTableComponent {
   private resizingColumn: string | null = null;
   private resizeStartX = 0;
   private resizeStartWidth = 0;
+  private justFinishedResizing = false;
   private readonly DEFAULT_COLUMN_WIDTH = 150;
   private readonly MIN_COLUMN_WIDTH = 60;
   private readonly MAX_COLUMN_WIDTH = 600;
@@ -1419,9 +1426,10 @@ export class ResultsTableComponent {
   columnWidths = computed(() => {
     const widths: Record<string, number> = {};
     for (const col of this.visibleColumns()) {
-      // Check tab preferences first
+      // Check live resize map first, then fall back to preferences
+      const liveWidth = this.columnWidthsMap()[col];
       const pref = this.columnPrefs().find(p => p.path === col);
-      widths[col] = pref?.width ?? this.columnWidthsMap()[col] ?? this.DEFAULT_COLUMN_WIDTH;
+      widths[col] = liveWidth ?? pref?.width ?? this.DEFAULT_COLUMN_WIDTH;
     }
     return widths;
   });
@@ -1434,12 +1442,24 @@ export class ResultsTableComponent {
     return ['_rowNum', ...this.visibleColumns()];
   });
 
-  // Extract partition key field name from path (e.g., "/userId" -> "userId")
-  partitionKeyField = computed(() => {
+  // Extract partition key field names from path(s)
+  // Supports hierarchical partition keys (comma-separated, e.g., "/tenant,/user")
+  partitionKeyFields = computed(() => {
     const path = this.container()?.partitionKeyPath;
-    if (!path) return null;
-    return path.replace(/^\//, '');
+    if (!path) return [];
+    return path.split(',').map(p => p.trim().replace(/^\//, ''));
   });
+
+  // For backwards compatibility - returns first partition key field
+  partitionKeyField = computed(() => {
+    const fields = this.partitionKeyFields();
+    return fields.length > 0 ? fields[0] : null;
+  });
+
+  // Check if a column is a partition key field
+  isPartitionKeyField(column: string): boolean {
+    return this.partitionKeyFields().includes(column);
+  }
 
   // Context menu state
   contextMenu = signal<{ x: number; y: number; doc: CosmosDocument } | null>(null);
@@ -1447,6 +1467,11 @@ export class ResultsTableComponent {
   getColumnLabel(path: string): string {
     const column = this.queryStore.columns().find((c) => c.path === path);
     return column?.label ?? path;
+  }
+
+  // Get document identifier (supports both 'id' for CosmosSQL and '_id' for MongoDB)
+  getDocId(doc: CosmosDocument): string {
+    return this.strategy().getDocumentId(doc);
   }
 
   // Column visibility methods
@@ -1512,8 +1537,8 @@ export class ResultsTableComponent {
   }
 
   onHeaderClick(column: string, event: MouseEvent): void {
-    // Don't sort if resizing
-    if (this.resizingColumn) return;
+    // Don't sort if resizing or just finished resizing
+    if (this.resizingColumn || this.justFinishedResizing) return;
 
     const tabId = this.currentTabId();
     if (!tabId) return;
@@ -1603,7 +1628,39 @@ export class ResultsTableComponent {
 
   @HostListener('document:mouseup')
   onMouseUp() {
-    this.resizingColumn = null;
+    // Handle column resize end
+    if (this.resizingColumn) {
+      // Save the column width to preferences
+      const tabId = this.currentTabId();
+      const width = this.columnWidthsMap()[this.resizingColumn];
+      if (tabId && width) {
+        this.tablePrefs.updateTabColumn(tabId, this.resizingColumn, { width });
+      }
+      this.resizingColumn = null;
+      // Prevent accidental sort trigger after resize
+      this.justFinishedResizing = true;
+      setTimeout(() => this.justFinishedResizing = false, 100);
+    }
+
+    // Handle cell selection drag end
+    if (this.isDragging()) {
+      this.isDragging.set(false);
+      // If start and end are the same, clear selection (single cell click)
+      const start = this.selectionStart();
+      const end = this.selectionEnd();
+      if (start && end && start.docId === end.docId && start.path === end.path) {
+        this.selectionStart.set(null);
+        this.selectionEnd.set(null);
+      }
+    }
+
+    // Handle row selection drag end
+    if (this.isRowDragging()) {
+      this.isRowDragging.set(false);
+      this.rowDragStartDocId.set(null);
+      // Focus table for keyboard events after row selection
+      this.refocusTable();
+    }
   }
 
   // Keyboard navigation
@@ -1643,8 +1700,8 @@ export class ResultsTableComponent {
 
     // Type to edit: if a cell is focused and user types a printable character, start editing
     if (focused && !isNavKey && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.length === 1) {
-      const doc = docs.find(d => d.id === focused.docId);
-      if (doc && !isSystemField(focused.path)) {
+      const doc = docs.find(d => this.getDocId(d) === focused.docId);
+      if (doc && !this.isSystemField(focused.path)) {
         event.preventDefault();
         this.startEditingWithChar(doc, focused.path, event.key);
         return;
@@ -1655,7 +1712,7 @@ export class ResultsTableComponent {
     if (docs.length === 0 || columns.length === 0) return;
 
     // Get current position
-    let rowIndex = focused ? docs.findIndex(d => d.id === focused.docId) : -1;
+    let rowIndex = focused ? docs.findIndex(d => this.getDocId(d) === focused.docId) : -1;
     let colIndex = focused ? columns.indexOf(focused.path) : -1;
 
     // Handle shift+arrow for area selection
@@ -1668,10 +1725,10 @@ export class ResultsTableComponent {
       case 'ArrowDown':
         event.preventDefault();
         if (!focused) {
-          this.focusedCell.set({ docId: docs[0].id, path: columns[0] });
+          this.focusedCell.set({ docId: this.getDocId(docs[0]), path: columns[0] });
           this.clearSelection();
         } else if (rowIndex < docs.length - 1) {
-          const newCell = { docId: docs[rowIndex + 1].id, path: columns[colIndex] };
+          const newCell = { docId: this.getDocId(docs[rowIndex + 1]), path: columns[colIndex] };
           if (isShift) {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1685,7 +1742,7 @@ export class ResultsTableComponent {
       case 'ArrowUp':
         event.preventDefault();
         if (focused && rowIndex > 0) {
-          const newCell = { docId: docs[rowIndex - 1].id, path: columns[colIndex] };
+          const newCell = { docId: this.getDocId(docs[rowIndex - 1]), path: columns[colIndex] };
           if (isShift) {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1700,10 +1757,10 @@ export class ResultsTableComponent {
       case 'Tab':
         event.preventDefault();
         if (!focused) {
-          this.focusedCell.set({ docId: docs[0].id, path: columns[0] });
+          this.focusedCell.set({ docId: this.getDocId(docs[0]), path: columns[0] });
           this.clearSelection();
         } else if (colIndex < columns.length - 1) {
-          const newCell = { docId: docs[rowIndex].id, path: columns[colIndex + 1] };
+          const newCell = { docId: this.getDocId(docs[rowIndex]), path: columns[colIndex + 1] };
           if (isShift && event.key === 'ArrowRight') {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1712,7 +1769,7 @@ export class ResultsTableComponent {
           this.focusedCell.set(newCell);
         } else if (event.key === 'Tab' && rowIndex < docs.length - 1) {
           // Tab at end of row goes to first column of next row
-          const newCell = { docId: docs[rowIndex + 1].id, path: columns[0] };
+          const newCell = { docId: this.getDocId(docs[rowIndex + 1]), path: columns[0] };
           this.focusedCell.set(newCell);
           this.clearSelection();
         }
@@ -1722,7 +1779,7 @@ export class ResultsTableComponent {
       case 'ArrowLeft':
         event.preventDefault();
         if (focused && colIndex > 0) {
-          const newCell = { docId: docs[rowIndex].id, path: columns[colIndex - 1] };
+          const newCell = { docId: this.getDocId(docs[rowIndex]), path: columns[colIndex - 1] };
           if (isShift) {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1736,7 +1793,7 @@ export class ResultsTableComponent {
       case 'Enter':
         event.preventDefault();
         if (focused) {
-          const doc = docs.find(d => d.id === focused.docId);
+          const doc = docs.find(d => this.getDocId(d) === focused.docId);
           if (doc) {
             this.startEditing(doc, focused.path);
           }
@@ -1753,7 +1810,7 @@ export class ResultsTableComponent {
 
   // Start editing with initial character
   private startEditingWithChar(doc: CosmosDocument, path: string, char: string) {
-    if (isSystemField(path)) return;
+    if (this.isSystemField(path)) return;
 
     const value = getValueAtPath(doc, stringToPath(path));
 
@@ -1762,7 +1819,7 @@ export class ResultsTableComponent {
       return;
     }
 
-    this.editingCell = { docId: doc.id, path };
+    this.editingCell = { docId: this.getDocId(doc), path };
     this.editingValue = char;
 
     this.updateApplicableTypes(this.editingValue, false);
@@ -1820,8 +1877,8 @@ export class ResultsTableComponent {
     const docs = this.processedDocuments();
     const columns = this.visibleColumns();
 
-    const startRowIdx = docs.findIndex(d => d.id === start.docId);
-    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
+    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
     const startColIdx = columns.indexOf(start.path);
     const endColIdx = columns.indexOf(end.path);
 
@@ -1833,7 +1890,7 @@ export class ResultsTableComponent {
     const cells: Array<{ docId: string; path: string }> = [];
     for (let r = minRow; r <= maxRow; r++) {
       for (let c = minCol; c <= maxCol; c++) {
-        cells.push({ docId: docs[r].id, path: columns[c] });
+        cells.push({ docId: this.getDocId(docs[r]), path: columns[c] });
       }
     }
     return cells;
@@ -1848,11 +1905,11 @@ export class ResultsTableComponent {
     const docs = this.processedDocuments();
     const columns = this.visibleColumns();
 
-    const cellRowIdx = docs.findIndex(d => d.id === docId);
+    const cellRowIdx = docs.findIndex(d => this.getDocId(d) === docId);
     const cellColIdx = columns.indexOf(path);
 
-    const startRowIdx = docs.findIndex(d => d.id === start.docId);
-    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
+    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
     const startColIdx = columns.indexOf(start.path);
     const endColIdx = columns.indexOf(end.path);
 
@@ -1878,8 +1935,8 @@ export class ResultsTableComponent {
 
     if (!start || !end) return;
 
-    const startRowIdx = docs.findIndex(d => d.id === start.docId);
-    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
+    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
     const startColIdx = columns.indexOf(start.path);
     const endColIdx = columns.indexOf(end.path);
 
@@ -1893,13 +1950,76 @@ export class ResultsTableComponent {
       const rowValues: string[] = [];
       for (let c = minCol; c <= maxCol; c++) {
         const value = this.getCellValue(docs[r], columns[c]);
-        rowValues.push(value === null || value === undefined ? '' : String(value));
+        rowValues.push(this.formatValueForCopy(value));
       }
       rows.push(rowValues.join('\t'));
     }
 
     const text = rows.join('\n');
     await navigator.clipboard.writeText(text);
+  }
+
+  /**
+   * Format a value for clipboard copy.
+   * Handles MongoDB Extended JSON types properly.
+   */
+  private formatValueForCopy(value: any): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+    // Handle MongoDB Extended JSON types
+    if (typeof value === 'object') {
+      // ObjectId
+      if (value.$oid) return value.$oid;
+      // UUID
+      if (value.$uuid) return value.$uuid;
+      // Binary (including UUID)
+      if (value.$binary) {
+        const subType = value.$binary.subType;
+        if (subType === '03' || subType === '04' || subType === 3 || subType === 4) {
+          return this.binaryToUuid(value.$binary.base64);
+        }
+        return value.$binary.base64 || '';
+      }
+      // Date
+      if (value.$date) {
+        if (typeof value.$date === 'string') return value.$date;
+        if (value.$date.$numberLong) {
+          return new Date(parseInt(value.$date.$numberLong, 10)).toISOString();
+        }
+      }
+      // NumberLong
+      if (value.$numberLong) return value.$numberLong;
+      // NumberDecimal
+      if (value.$numberDecimal) return value.$numberDecimal;
+      // Regex
+      if (value.$regex) return `/${value.$regex}/${value.$options || ''}`;
+      // Arrays and other objects - stringify
+      return JSON.stringify(value);
+    }
+
+    return String(value);
+  }
+
+  /**
+   * Convert base64 binary to UUID string.
+   */
+  private binaryToUuid(base64: string): string {
+    try {
+      const binaryStr = atob(base64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      if (bytes.length !== 16) {
+        return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+      }
+      const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    } catch {
+      return base64;
+    }
   }
 
   private async pasteToSelection() {
@@ -1915,7 +2035,7 @@ export class ResultsTableComponent {
       if (this.isJsonContent(trimmedText)) {
         // Paste JSON into single focused cell
         const focused = this.focusedCell();
-        if (focused && !isSystemField(focused.path)) {
+        if (focused && !this.isSystemField(focused.path)) {
           try {
             const jsonValue = JSON.parse(trimmedText);
             this.queryStore.updateDocumentField(focused.docId, focused.path, jsonValue);
@@ -1934,7 +2054,7 @@ export class ResultsTableComponent {
         // Single value - apply to all selected cells
         const value = this.parseClipboardValue(rows[0][0]);
         for (const cell of cells) {
-          if (!isSystemField(cell.path)) {
+          if (!this.isSystemField(cell.path)) {
             this.queryStore.updateDocumentField(cell.docId, cell.path, value);
           }
         }
@@ -1944,14 +2064,14 @@ export class ResultsTableComponent {
         const start = this.selectionStart() || this.focusedCell();
         if (!start) return;
 
-        const startRowIdx = docs.findIndex(d => d.id === start.docId);
+        const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
         const startColIdx = columns.indexOf(start.path);
 
         for (let r = 0; r < rows.length && startRowIdx + r < docs.length; r++) {
           for (let c = 0; c < rows[r].length && startColIdx + c < columns.length; c++) {
-            const docId = docs[startRowIdx + r].id;
+            const docId = this.getDocId(docs[startRowIdx + r]);
             const path = columns[startColIdx + c];
-            if (!isSystemField(path)) {
+            if (!this.isSystemField(path)) {
               const value = this.parseClipboardValue(rows[r][c]);
               this.queryStore.updateDocumentField(docId, path, value);
             }
@@ -2111,26 +2231,6 @@ export class ResultsTableComponent {
     }
   }
 
-  @HostListener('document:mouseup')
-  onDocumentMouseUp() {
-    if (this.isDragging()) {
-      this.isDragging.set(false);
-      // If start and end are the same, clear selection (single cell click)
-      const start = this.selectionStart();
-      const end = this.selectionEnd();
-      if (start && end && start.docId === end.docId && start.path === end.path) {
-        this.selectionStart.set(null);
-        this.selectionEnd.set(null);
-      }
-    }
-
-    if (this.isRowDragging()) {
-      this.isRowDragging.set(false);
-      this.rowDragStartDocId.set(null);
-      // Focus table for keyboard events after row selection
-      this.refocusTable();
-    }
-  }
 
   onCellClick(docId: string, path: string, event: MouseEvent) {
     // Click is now handled by mousedown, but keep for double-click compatibility
@@ -2155,15 +2255,15 @@ export class ResultsTableComponent {
     if (event.shiftKey && this.selectionStart()) {
       // Shift+click: extend selection to include all rows from start to clicked row
       const start = this.selectionStart()!;
-      const startRowIdx = docs.findIndex(d => d.id === start.docId);
-      const clickedRowIdx = docs.findIndex(d => d.id === docId);
+      const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
+      const clickedRowIdx = docs.findIndex(d => this.getDocId(d) === docId);
 
       const minRowIdx = Math.min(startRowIdx, clickedRowIdx);
       const maxRowIdx = Math.max(startRowIdx, clickedRowIdx);
 
       // Keep the original start row, extend to clicked row
-      this.selectionStart.set({ docId: docs[minRowIdx].id, path: firstCol });
-      this.selectionEnd.set({ docId: docs[maxRowIdx].id, path: lastCol });
+      this.selectionStart.set({ docId: this.getDocId(docs[minRowIdx]), path: firstCol });
+      this.selectionEnd.set({ docId: this.getDocId(docs[maxRowIdx]), path: lastCol });
       this.focusedCell.set({ docId, path: firstCol });
     } else {
       // Start row drag selection
@@ -2191,14 +2291,14 @@ export class ResultsTableComponent {
     const startDocId = this.rowDragStartDocId();
     if (!startDocId) return;
 
-    const startRowIdx = docs.findIndex(d => d.id === startDocId);
-    const currentRowIdx = docs.findIndex(d => d.id === docId);
+    const startRowIdx = docs.findIndex(d => this.getDocId(d) === startDocId);
+    const currentRowIdx = docs.findIndex(d => this.getDocId(d) === docId);
 
     const minRowIdx = Math.min(startRowIdx, currentRowIdx);
     const maxRowIdx = Math.max(startRowIdx, currentRowIdx);
 
-    this.selectionStart.set({ docId: docs[minRowIdx].id, path: firstCol });
-    this.selectionEnd.set({ docId: docs[maxRowIdx].id, path: lastCol });
+    this.selectionStart.set({ docId: this.getDocId(docs[minRowIdx]), path: firstCol });
+    this.selectionEnd.set({ docId: this.getDocId(docs[maxRowIdx]), path: lastCol });
     this.focusedCell.set({ docId, path: firstCol });
   }
 
@@ -2212,9 +2312,9 @@ export class ResultsTableComponent {
     if (columns.length === 0) return false;
 
     const docs = this.processedDocuments();
-    const startRowIdx = docs.findIndex(d => d.id === start.docId);
-    const endRowIdx = docs.findIndex(d => d.id === end.docId);
-    const rowIdx = docs.findIndex(d => d.id === docId);
+    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
+    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
+    const rowIdx = docs.findIndex(d => this.getDocId(d) === docId);
 
     const minRow = Math.min(startRowIdx, endRowIdx);
     const maxRow = Math.max(startRowIdx, endRowIdx);
@@ -2229,8 +2329,8 @@ export class ResultsTableComponent {
     if (!start || !end) return [];
 
     const docs = this.processedDocuments();
-    const startRowIdx = docs.findIndex(d => d.id === start.docId);
-    const endRowIdx = docs.findIndex(d => d.id === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
+    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
 
     const minRow = Math.min(startRowIdx, endRowIdx);
     const maxRow = Math.max(startRowIdx, endRowIdx);
@@ -2300,13 +2400,13 @@ export class ResultsTableComponent {
       const cells = this.getSelectedCells();
       if (cells.length === 0 && focused) {
         // Single focused cell
-        if (!isSystemField(focused.path)) {
+        if (!this.isSystemField(focused.path)) {
           this.queryStore.updateDocumentField(focused.docId, focused.path, undefined);
         }
       } else {
         // Multiple cells selected
         for (const cell of cells) {
-          if (!isSystemField(cell.path)) {
+          if (!this.isSystemField(cell.path)) {
             this.queryStore.updateDocumentField(cell.docId, cell.path, undefined);
           }
         }
@@ -2335,7 +2435,11 @@ export class ResultsTableComponent {
   }
 
   isSystemField(path: string): boolean {
-    return isSystemField(path);
+    return this.strategy().isSystemField(path);
+  }
+
+  isIdColumn(column: string): boolean {
+    return this.strategy().isIdColumn(column);
   }
 
   getCellValue(doc: CosmosDocument, path: string): any {
@@ -2343,7 +2447,7 @@ export class ResultsTableComponent {
   }
 
   startEditing(doc: CosmosDocument, path: string) {
-    if (isSystemField(path)) return;
+    if (this.isSystemField(path)) return;
 
     const value = getValueAtPath(doc, stringToPath(path));
 
@@ -2360,7 +2464,7 @@ export class ResultsTableComponent {
     }
 
     // For simple types, use inline editing
-    this.editingCell = { docId: doc.id, path };
+    this.editingCell = { docId: this.getDocId(doc), path };
     this.editingValue =
       value === null ? 'null' : value === undefined ? '' : String(value);
 
@@ -2451,7 +2555,7 @@ export class ResultsTableComponent {
         this.isEditingCancelled = false;
         return;
       }
-      if (this.editingCell?.docId === doc.id && this.editingCell?.path === column) {
+      if (this.editingCell?.docId === this.getDocId(doc) && this.editingCell?.path === column) {
         this.finishEditing(doc, column);
       }
     }, 150);
@@ -2462,7 +2566,7 @@ export class ResultsTableComponent {
       data: {
         fieldPath: path,
         value: value,
-        documentId: doc.id,
+        documentId: this.getDocId(doc),
         mode,
       },
       width: '600px',
@@ -2471,7 +2575,7 @@ export class ResultsTableComponent {
 
     dialogRef.afterClosed().subscribe((updatedValue) => {
       if (updatedValue !== undefined) {
-        this.queryStore.updateDocumentField(doc.id, path, updatedValue);
+        this.queryStore.updateDocumentField(this.getDocId(doc), path, updatedValue);
       }
     });
   }
@@ -2486,9 +2590,9 @@ export class ResultsTableComponent {
     if (selectedOption) {
       if (selectedOption.type === 'delete') {
         // Delete field - set to undefined which should remove it
-        this.queryStore.updateDocumentField(doc.id, path, undefined);
+        this.queryStore.updateDocumentField(this.getDocId(doc), path, undefined);
       } else {
-        this.queryStore.updateDocumentField(doc.id, path, selectedOption.value);
+        this.queryStore.updateDocumentField(this.getDocId(doc), path, selectedOption.value);
       }
     }
 
@@ -2545,12 +2649,12 @@ export class ResultsTableComponent {
   onSaveDocument(doc: CosmosDocument) {
     const cont = this.container();
     if (cont) {
-      this.queryStore.saveDocument(cont, doc.id);
+      this.queryStore.saveDocument(cont, this.getDocId(doc));
     }
   }
 
   onDiscardChanges(doc: CosmosDocument) {
-    this.queryStore.discardChanges(doc.id);
+    this.queryStore.discardChanges(this.getDocId(doc));
   }
 
   onSaveAll() {
@@ -2578,11 +2682,11 @@ export class ResultsTableComponent {
     });
 
     dialogRef.afterClosed().subscribe((updatedDoc) => {
-      if (updatedDoc && updatedDoc.id === doc.id) {
-        // Apply changes from JSON editor
+      if (updatedDoc && this.getDocId(updatedDoc) === this.getDocId(doc)) {
+        // Apply changes from JSON editor (skip system fields)
         Object.keys(updatedDoc).forEach((key) => {
-          if (!key.startsWith('_') && key !== 'id') {
-            this.queryStore.updateDocumentField(doc.id, key, updatedDoc[key]);
+          if (!this.isSystemField(key)) {
+            this.queryStore.updateDocumentField(this.getDocId(doc), key, updatedDoc[key]);
           }
         });
       }
@@ -2593,14 +2697,8 @@ export class ResultsTableComponent {
     const cont = this.container();
     if (!cont) return;
 
-    // Create copy without system fields
-    const copy: any = {};
-    Object.keys(doc).forEach((key) => {
-      if (!key.startsWith('_')) {
-        copy[key] = doc[key];
-      }
-    });
-    copy.id = this.generateId();
+    // Create copy using strategy (handles provider-specific ID generation)
+    const copy = this.strategy().duplicateDocument(doc);
 
     const dialogRef = this.dialog.open(JsonViewerDialogComponent, {
       data: {
@@ -2634,10 +2732,11 @@ export class ResultsTableComponent {
   }
 
   onDeleteDocument(doc: CosmosDocument) {
+    const docId = this.getDocId(doc);
     const dialogRef = this.dialog.open(ConfirmDialogComponent, {
       data: {
         title: 'Delete Document',
-        message: `Are you sure you want to delete document "${doc.id}"? This action cannot be undone.`,
+        message: `Are you sure you want to delete document "${docId}"? This action cannot be undone.`,
         confirmText: 'Delete',
         confirmColor: 'warn',
       },
@@ -2647,7 +2746,7 @@ export class ResultsTableComponent {
       if (confirmed) {
         const cont = this.container();
         if (cont) {
-          this.queryStore.deleteDocument(cont, doc.id);
+          this.queryStore.deleteDocument(cont, docId);
         }
       }
     });

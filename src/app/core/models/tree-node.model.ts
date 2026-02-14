@@ -6,7 +6,7 @@ export interface DatabaseInfo {
 export interface ContainerInfo {
   id: string;
   name: string;
-  partitionKeyPath: string;
+  partitionKeyPath: string; // Comma-separated for hierarchical keys, e.g. "/tenant,/user"
   databaseId: string;
 }
 

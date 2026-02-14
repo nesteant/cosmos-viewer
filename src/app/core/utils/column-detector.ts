@@ -3,9 +3,16 @@ import { CosmosDocument, ColumnDefinition } from '../models';
 /**
  * Detects columns from a set of documents
  * Only analyzes top-level keys - nested objects/arrays are shown as complex values
+ * @param documents Array of documents to analyze
+ * @param partitionKeyPaths Optional comma-separated partition key paths (e.g., "/userId" or "/tenant,/user")
  */
-export function detectColumns(documents: CosmosDocument[]): ColumnDefinition[] {
+export function detectColumns(documents: CosmosDocument[], partitionKeyPaths?: string): ColumnDefinition[] {
   if (documents.length === 0) return [];
+
+  // Parse partition key fields for ordering
+  const pkFields = partitionKeyPaths
+    ? partitionKeyPaths.split(',').map(p => p.trim().replace(/^\//, ''))
+    : [];
 
   const columnMap = new Map<
     string,
@@ -52,11 +59,21 @@ export function detectColumns(documents: CosmosDocument[]): ColumnDefinition[] {
     })
   );
 
-  // Sort: 'id' first, then user fields alphabetically, then system fields (starting with _) at end
+  // Sort: 'id'/'_id' first, then partition key fields, then user fields alphabetically, then system fields at end
   columns.sort((a, b) => {
-    // 'id' always first
-    if (a.path === 'id') return -1;
-    if (b.path === 'id') return 1;
+    // 'id' or '_id' always first
+    if (a.path === 'id' || a.path === '_id') return -1;
+    if (b.path === 'id' || b.path === '_id') return 1;
+
+    // Partition key fields come next (in order they appear in the path)
+    const aIsPk = pkFields.includes(a.path);
+    const bIsPk = pkFields.includes(b.path);
+    if (aIsPk && !bIsPk) return -1;
+    if (!aIsPk && bIsPk) return 1;
+    if (aIsPk && bIsPk) {
+      // Maintain partition key order
+      return pkFields.indexOf(a.path) - pkFields.indexOf(b.path);
+    }
 
     // System fields (starting with _) go to the end
     const aIsSystem = a.path.startsWith('_');

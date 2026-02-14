@@ -2,6 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.cosmos-viewer.app",
   "productName": "Cosmos Viewer",
+  "artifactName": "Cosmos-Viewer-${version}-${arch}.${ext}",
   "directories": {
     "output": "release"
   },
@@ -13,7 +14,7 @@
     "category": "public.app-category.developer-tools",
     "target": ["dmg", "zip"],
     "icon": "public/icon.icns",
-    "identity": null
+    "identity": "Apple Development: Anton Nesterenko (QUN6FZB2B8)"
   },
   "win": {
     "target": ["nsis", "portable"],

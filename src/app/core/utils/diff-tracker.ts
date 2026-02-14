@@ -17,6 +17,13 @@ export interface DirtyDocument {
 }
 
 /**
+ * Get document ID (supports both 'id' for CosmosSQL and '_id' for MongoDB)
+ */
+function getDocId(doc: CosmosDocument): string {
+  return doc.id ?? (doc as any)._id?.toString() ?? '';
+}
+
+/**
  * Creates a composite key from document id and partition key value
  * This ensures uniqueness when documents with same id exist in different partitions
  */
@@ -62,7 +69,7 @@ export class DiffTracker {
    */
   private getDocumentKey(doc: CosmosDocument): string {
     const pkValue = extractPartitionKeyValue(doc, this.partitionKeyPath ?? undefined);
-    return createDocumentKey(doc.id, pkValue);
+    return createDocumentKey(getDocId(doc), pkValue);
   }
 
   /**
@@ -75,7 +82,7 @@ export class DiffTracker {
     }
     // Search for document with matching id in tracked documents
     for (const [key, tracked] of this.dirtyDocuments) {
-      if (tracked.modified.id === documentId) {
+      if (getDocId(tracked.modified) === documentId) {
         return key;
       }
     }

@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import { getAppSettings } from './storage.service';
 
@@ -56,7 +56,9 @@ export function registerUpdaterIpcHandlers(): void {
   });
 
   ipcMain.handle('updater:install', () => {
-    autoUpdater.quitAndInstall();
+    // Force quit on macOS — without this, the app stays open
+    app.removeAllListeners('window-all-closed');
+    autoUpdater.quitAndInstall(false, true);
   });
 
   ipcMain.handle('updater:apply-settings', async (_, settings: { allowPrerelease: boolean }) => {

@@ -1,5 +1,5 @@
 import { Component, input, computed } from '@angular/core';
-import { detectValueType, DetectedValueType } from '@core/utils';
+import { detectValueType, DetectedValueType, extractMongoDisplayValue } from '@core/utils';
 import { BooleanFormatterComponent } from './boolean-formatter.component';
 import { NumberFormatterComponent } from './number-formatter.component';
 import { GuidFormatterComponent } from './guid-formatter.component';
@@ -28,8 +28,20 @@ import { ArrayPreviewComponent } from './array-preview.component';
       @case ('number') {
         <app-number-formatter [value]="value()" />
       }
+      @case ('numberLong') {
+        <span class="number-value">{{ mongoDisplayValue() }}</span>
+      }
+      @case ('numberDecimal') {
+        <span class="number-value">{{ mongoDisplayValue() }}</span>
+      }
       @case ('guid') {
-        <app-guid-formatter [value]="value()" />
+        <app-guid-formatter [value]="guidValue()" />
+      }
+      @case ('binaryUuid') {
+        <app-guid-formatter [value]="mongoDisplayValue()" />
+      }
+      @case ('objectId') {
+        <span class="objectid-value" [title]="mongoDisplayValue()">{{ mongoDisplayValue() }}</span>
       }
       @case ('url') {
         <app-url-formatter [value]="value()" />
@@ -37,8 +49,17 @@ import { ArrayPreviewComponent } from './array-preview.component';
       @case ('datetime') {
         <app-datetime-formatter [value]="value()" />
       }
+      @case ('mongoDate') {
+        <span class="datetime-value">{{ mongoDisplayValue() }}</span>
+      }
       @case ('timestamp') {
         <app-datetime-formatter [value]="value()" />
+      }
+      @case ('regex') {
+        <span class="regex-value">{{ mongoDisplayValue() }}</span>
+      }
+      @case ('binary') {
+        <span class="binary-value" [title]="'Binary data'">{{ mongoDisplayValue() }}</span>
       }
       @case ('object') {
         <app-object-preview [value]="value()" />
@@ -73,6 +94,34 @@ import { ArrayPreviewComponent } from './array-preview.component';
         color: rgba(255, 255, 255, 0.9);
         font-size: 12px;
       }
+
+      .objectid-value {
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+        font-size: 11px;
+        color: #ce93d8;
+      }
+
+      .number-value {
+        color: #90caf9;
+        font-size: 12px;
+      }
+
+      .datetime-value {
+        color: #a5d6a7;
+        font-size: 12px;
+      }
+
+      .regex-value {
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+        font-size: 11px;
+        color: #ffcc80;
+      }
+
+      .binary-value {
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+        font-size: 11px;
+        color: #bcaaa4;
+      }
     `,
   ],
 })
@@ -90,5 +139,18 @@ export class CellFormatterComponent {
       return '';
     }
     return String(val);
+  });
+
+  /** Extract display value from MongoDB Extended JSON */
+  mongoDisplayValue = computed(() => {
+    return extractMongoDisplayValue(this.value());
+  });
+
+  /** Get GUID value (handles both string and $uuid format) */
+  guidValue = computed(() => {
+    const val = this.value();
+    if (typeof val === 'string') return val;
+    if (val?.$uuid) return val.$uuid;
+    return extractMongoDisplayValue(val);
   });
 }

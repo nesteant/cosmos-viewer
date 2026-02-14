@@ -207,7 +207,8 @@ export class CosmosSqlProvider implements DatabaseProvider {
       name: container.id!,
       databaseId,
       metadata: {
-        partitionKeyPath: container.partitionKey?.paths?.[0] ?? '/id',
+        // Join all partition key paths with comma for hierarchical keys
+        partitionKeyPath: container.partitionKey?.paths?.join(',') ?? '/id',
       },
     }));
   }
@@ -266,7 +267,9 @@ export class CosmosSqlProvider implements DatabaseProvider {
         .database(params.databaseId)
         .container(params.collectionId);
 
-      const partitionKey = params.options?.['partitionKey'] as string | undefined;
+      // Handle hierarchical partition keys (array) or single partition key
+      const partitionKeyParam = params.options?.['partitionKey'];
+      const partitionKey = Array.isArray(partitionKeyParam) ? partitionKeyParam : partitionKeyParam as string | undefined;
       const { resource, requestCharge } = await container
         .item(params.documentId, partitionKey)
         .replace(params.document as Record<string, unknown>);
@@ -288,7 +291,9 @@ export class CosmosSqlProvider implements DatabaseProvider {
         .database(params.databaseId)
         .container(params.collectionId);
 
-      const partitionKey = params.options?.['partitionKey'] as string | undefined;
+      // Handle hierarchical partition keys (array) or single partition key
+      const partitionKeyParam = params.options?.['partitionKey'];
+      const partitionKey = Array.isArray(partitionKeyParam) ? partitionKeyParam : partitionKeyParam as string | undefined;
       await container.item(params.documentId, partitionKey).delete();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to delete document';
