@@ -86,16 +86,29 @@ import { ExplorerStore } from '../../store';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 8px 12px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 4px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        min-height: 32px;
+
+        button {
+          width: 28px;
+          height: 28px;
+          line-height: 28px;
+
+          mat-icon {
+            font-size: 18px;
+            width: 18px;
+            height: 18px;
+          }
+        }
       }
 
       .tree-title {
-        font-size: 12px;
-        font-weight: 500;
+        font-size: 10px;
+        font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: rgba(255, 255, 255, 0.7);
+        color: rgba(255, 255, 255, 0.5);
       }
 
       .loading,
@@ -104,33 +117,42 @@ import { ExplorerStore } from '../../store';
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 12px;
-        padding: 32px;
-        color: rgba(255, 255, 255, 0.5);
-        font-size: 13px;
+        gap: 8px;
+        padding: 24px 12px;
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 11px;
       }
 
       .empty-state mat-icon {
-        font-size: 48px;
-        width: 48px;
-        height: 48px;
-        opacity: 0.5;
+        font-size: 32px;
+        width: 32px;
+        height: 32px;
+        opacity: 0.4;
       }
 
       .tree-container {
         flex: 1 1 0;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 4px 0;
+        padding: 2px 0;
+
+        &::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        &::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.15);
+          border-radius: 2px;
+        }
       }
 
       .tree-node {
         display: flex;
         align-items: center;
-        min-height: 36px;
-        padding-right: 12px;
-        border-radius: 4px;
-        margin: 2px 8px;
+        min-height: 26px;
+        padding-right: 8px;
+        border-radius: 3px;
+        margin: 1px 4px;
         cursor: pointer;
       }
 
@@ -139,29 +161,29 @@ import { ExplorerStore } from '../../store';
       }
 
       .tree-node.selected {
-        background: rgba(103, 58, 183, 0.2);
+        background: rgba(103, 58, 183, 0.25);
       }
 
       .node-indent {
-        width: 40px;
+        width: 28px;
         flex-shrink: 0;
       }
 
       .expand-icon {
-        font-size: 20px;
-        width: 20px;
-        height: 20px;
-        margin-left: 8px;
-        margin-right: 4px;
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        margin-left: 4px;
+        margin-right: 2px;
         flex-shrink: 0;
-        color: rgba(255, 255, 255, 0.5);
+        color: rgba(255, 255, 255, 0.4);
       }
 
       .node-icon {
-        font-size: 20px;
-        width: 20px;
-        height: 20px;
-        margin-right: 8px;
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        margin-right: 6px;
         flex-shrink: 0;
       }
 
@@ -178,7 +200,8 @@ import { ExplorerStore } from '../../store';
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 13px;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.85);
       }
 
       .node-name.clickable:hover {
@@ -188,7 +211,7 @@ import { ExplorerStore } from '../../store';
       .loading-containers {
         display: flex;
         justify-content: center;
-        padding: 8px 0 8px 48px;
+        padding: 4px 0 4px 32px;
       }
     `,
   ],

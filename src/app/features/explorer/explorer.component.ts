@@ -4,16 +4,18 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
-import { ContainerInfo, TabState, ProviderType } from '@core/models';
+import { ContainerInfo, TabState, ProviderType, DatabaseConnection } from '@core/models';
 import { LayoutPreferencesService, NotificationService, TabsPersistenceService, TablePreferencesService } from '@core/services';
 import { getDefaultQueryForProvider } from '@core/utils/query-utils';
 import { CollapseButtonComponent } from '@shared/components';
 import { ConnectionsStore } from '../connections/store';
 import { ExplorerStore, QueryStore } from './store';
+import { ConnectionsBarComponent } from './components/connections-bar/connections-bar.component';
 import { DatabaseTreeComponent } from './components/database-tree/database-tree.component';
 import { QueryEditorComponent } from './components/query-editor/query-editor.component';
 import { ResultsTableComponent } from './components/results-table/results-table.component';
 import { TabBarComponent } from './components/tab-bar/tab-bar.component';
+import { WelcomePanelComponent } from './components/welcome-panel/welcome-panel.component';
 
 @Component({
   selector: 'app-explorer',
@@ -24,44 +26,28 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
     MatTooltipModule,
     AngularSplitModule,
     CollapseButtonComponent,
+    ConnectionsBarComponent,
     DatabaseTreeComponent,
     QueryEditorComponent,
     ResultsTableComponent,
     TabBarComponent,
+    WelcomePanelComponent,
   ],
   template: `
     <div class="explorer-layout">
-      <!-- Sidebar (collapsible to icon strip) -->
+      <!-- Connections Activity Bar (always visible) -->
+      <app-connections-bar
+        [connections]="connectionsStore.connections()"
+        [selectedConnectionId]="connectionsStore.selectedConnection()?.id ?? null"
+        (backClicked)="onBackToConnections()"
+        (connectionSelected)="onConnectionSelected($event)"
+        (settingsClicked)="onSettingsClicked()"
+      />
+
+      <!-- Database Tree Sidebar -->
       <aside class="explorer-sidebar" [class.collapsed]="sidebarCollapsed()">
-        @if (sidebarCollapsed()) {
-          <!-- Collapsed: narrow icon strip -->
-          <div class="sidebar-collapsed">
-            <button
-              mat-icon-button
-              matTooltip="Expand Sidebar"
-              (click)="toggleSidebar()"
-              class="expand-btn"
-            >
-              <mat-icon>chevron_right</mat-icon>
-            </button>
-            <!-- Status icons area (for future use) -->
-            <div class="status-icons">
-              <mat-icon
-                class="status-icon connected"
-                [matTooltip]="connectionsStore.selectedConnection()?.name ?? 'Connected'"
-              >cloud_done</mat-icon>
-            </div>
-          </div>
-        } @else {
-          <!-- Expanded: full sidebar -->
+        @if (!sidebarCollapsed()) {
           <div class="sidebar-header">
-            <button
-              mat-icon-button
-              matTooltip="Back to Connections"
-              (click)="onBackToConnections()"
-            >
-              <mat-icon>arrow_back</mat-icon>
-            </button>
             <span class="connection-name">
               {{ connectionsStore.selectedConnection()?.name ?? 'Connection' }}
             </span>
@@ -73,7 +59,7 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
             <span class="spacer"></span>
             <button
               mat-icon-button
-              matTooltip="Collapse Sidebar"
+              matTooltip="Collapse"
               (click)="toggleSidebar()"
               class="collapse-btn"
             >
@@ -83,6 +69,15 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
           <app-database-tree
             (containerSelected)="onContainerSelected($event)"
           />
+        } @else {
+          <button
+            mat-icon-button
+            matTooltip="Expand Sidebar"
+            (click)="toggleSidebar()"
+            class="expand-btn"
+          >
+            <mat-icon>chevron_right</mat-icon>
+          </button>
         }
       </aside>
 
@@ -159,11 +154,10 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
               </as-split>
             </div>
           } @else {
-            <div class="no-selection">
-              <mat-icon>touch_app</mat-icon>
-              <h3>Select a Container</h3>
-              <p>Choose a database and container from the tree to start querying</p>
-            </div>
+            <!-- Welcome panel when no container selected -->
+            <app-welcome-panel
+              (containerSelected)="onContainerSelected($event)"
+            />
           }
       </div>
     </div>
@@ -182,86 +176,56 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
         overflow: hidden;
       }
 
-      /* Sidebar */
+      /* Database Tree Sidebar */
       .explorer-sidebar {
         height: 100%;
         display: flex;
         flex-direction: column;
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(0, 0, 0, 0.2);
         overflow: hidden;
         transition: width 0.15s ease;
-        width: var(--sidebar-width, 280px);
-        min-width: var(--sidebar-width, 280px);
+        width: var(--sidebar-width, 220px);
+        min-width: var(--sidebar-width, 220px);
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
       }
 
       .explorer-sidebar.collapsed {
-        width: 48px;
-        min-width: 48px;
-      }
-
-      /* Collapsed sidebar strip */
-      .sidebar-collapsed {
-        display: flex;
-        flex-direction: column;
+        width: 32px;
+        min-width: 32px;
         align-items: center;
-        padding: 4px 0;
-        gap: 4px;
-        height: 100%;
-      }
-
-      .sidebar-collapsed .expand-btn {
-        margin-bottom: 4px;
-      }
-
-      .status-icons {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding-top: 8px;
-        gap: 8px;
-      }
-
-      .status-icon {
-        font-size: 20px;
-        width: 20px;
-        height: 20px;
-        opacity: 0.6;
-      }
-
-      .status-icon.connected {
-        color: #4caf50;
-        opacity: 1;
+        padding-top: 4px;
       }
 
       /* Expanded sidebar */
       .sidebar-header {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        gap: 6px;
+        padding: 6px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         flex-shrink: 0;
+        min-height: 36px;
       }
 
       .connection-name {
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 500;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         min-width: 0;
+        color: rgba(255, 255, 255, 0.9);
       }
 
       .provider-badge {
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 600;
-        padding: 2px 6px;
-        border-radius: 4px;
+        padding: 2px 5px;
+        border-radius: 3px;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.3px;
         flex-shrink: 0;
-        background: rgba(187, 134, 252, 0.2);
+        background: rgba(187, 134, 252, 0.15);
         color: #bb86fc;
       }
 
@@ -271,8 +235,17 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
 
       .collapse-btn,
       .expand-btn {
-        opacity: 0.7;
+        opacity: 0.5;
         transition: opacity 0.15s;
+        width: 24px;
+        height: 24px;
+        line-height: 24px;
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
       }
 
       .collapse-btn:hover,
@@ -282,7 +255,7 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
 
       /* Sidebar resizer */
       .sidebar-resizer {
-        width: 4px;
+        width: 3px;
         cursor: col-resize;
         background: transparent;
         transition: background 0.15s;
@@ -360,37 +333,6 @@ import { TabBarComponent } from './components/tab-bar/tab-bar.component';
         font-size: 12px;
         color: rgba(255, 255, 255, 0.5);
       }
-
-      .no-selection {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        color: rgba(255, 255, 255, 0.5);
-        text-align: center;
-        padding: 32px;
-      }
-
-      .no-selection mat-icon {
-        font-size: 72px;
-        width: 72px;
-        height: 72px;
-        margin-bottom: 16px;
-        opacity: 0.5;
-      }
-
-      .no-selection h3 {
-        margin: 0;
-        font-size: 20px;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.7);
-      }
-
-      .no-selection p {
-        margin: 8px 0 0;
-        font-size: 14px;
-      }
     `,
   ],
 })
@@ -405,13 +347,13 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   private notificationService = inject(NotificationService);
 
   // Layout state
-  sidebarWidth = signal(280); // pixels
+  sidebarWidth = signal(220); // pixels
   queryPanelSize = signal(25);
   sidebarCollapsed = signal(false);
   queryPanelCollapsed = signal(false);
 
   // Store previous sizes for restore after collapse
-  private lastSidebarWidth = 280;
+  private lastSidebarWidth = 220;
   private lastQueryPanelSize = 25;
 
   // Resizing state
@@ -436,14 +378,14 @@ export class ExplorerComponent implements OnInit, OnDestroy {
 
     // Load layout preferences
     const prefs = await this.layoutService.loadPreferences();
-    this.sidebarWidth.set(prefs.sidebarWidth ?? 280);
+    this.sidebarWidth.set(prefs.sidebarWidth ?? 220);
     this.queryPanelSize.set(prefs.queryPanelSize);
     this.sidebarCollapsed.set(prefs.sidebarCollapsed);
     this.queryPanelCollapsed.set(prefs.queryPanelCollapsed);
 
     // Store for restore
     if (!prefs.sidebarCollapsed) {
-      this.lastSidebarWidth = prefs.sidebarWidth ?? 280;
+      this.lastSidebarWidth = prefs.sidebarWidth ?? 220;
       // Set CSS variable for sidebar width
       document.documentElement.style.setProperty('--sidebar-width', `${this.sidebarWidth()}px`);
     }
@@ -490,6 +432,35 @@ export class ExplorerComponent implements OnInit, OnDestroy {
     this.explorerStore.clearSelection();
     sessionStorage.removeItem('activeConnectionId');
     this.router.navigate(['/connections']);
+  }
+
+  onConnectionSelected(connection: DatabaseConnection) {
+    // Switch to different connection
+    if (connection.id !== this.connectionsStore.selectedConnection()?.id) {
+      // Save current state
+      this.layoutService.saveImmediately();
+      this.tabsService.saveImmediately();
+      this.tablePrefsService.saveImmediately();
+
+      // Select new connection
+      this.connectionsStore.selectConnection(connection.id);
+      sessionStorage.setItem('activeConnectionId', connection.id);
+
+      // Reset explorer state for new connection
+      this.explorerStore.reset();
+      this.queryStore.reset();
+
+      // Load databases for new connection
+      this.explorerStore.loadDatabases();
+
+      // Sync tabs to new connection
+      this.explorerStore.syncActiveTabToConnection();
+    }
+  }
+
+  onSettingsClicked() {
+    // TODO: Open settings dialog
+    this.notificationService.info('Settings coming soon');
   }
 
   onContainerSelected(container: ContainerInfo) {

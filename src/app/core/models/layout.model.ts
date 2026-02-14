@@ -18,7 +18,7 @@ export interface LayoutPreferences {
 }
 
 export const DEFAULT_LAYOUT_PREFERENCES: LayoutPreferences = {
-  sidebarWidth: 280, // pixels
+  sidebarWidth: 220, // pixels
   queryPanelSize: 25, // 25% of main area height
   sidebarCollapsed: false,
   queryPanelCollapsed: false,

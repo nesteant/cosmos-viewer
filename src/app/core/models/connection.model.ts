@@ -17,6 +17,17 @@ export interface ProviderCapabilities {
   queryLanguage: 'sql' | 'mongodb' | 'custom';
 }
 
+export interface ConnectionAppearance {
+  /** 2-3 letter abbreviation shown on icon */
+  prefix?: string;
+  /** Material icon name (optional, uses prefix if not set) */
+  icon?: string;
+  /** Background color (hex or css color) */
+  bgColor?: string;
+  /** Icon/text color (hex or css color) */
+  iconColor?: string;
+}
+
 export interface DatabaseConnection {
   id: string;
   name: string;
@@ -27,6 +38,8 @@ export interface DatabaseConnection {
   createdAt: Date;
   lastUsedAt?: Date;
   order?: number;
+  /** Visual customization for sidebar */
+  appearance?: ConnectionAppearance;
 }
 
 export interface ConnectionTestResult {

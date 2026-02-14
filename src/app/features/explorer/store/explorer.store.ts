@@ -260,20 +260,26 @@ export const ExplorerStore = signalStore(
 
       closeTab(tabId: string) {
         const tabs = store.tabs();
-        const tabIndex = tabs.findIndex((t) => t.id === tabId);
-        if (tabIndex === -1) return;
+        const closingTab = tabs.find((t) => t.id === tabId);
+        if (!closingTab) return;
 
+        const connectionId = closingTab.connectionId;
         const newTabs = tabs.filter((t) => t.id !== tabId);
 
-        // If closing active tab, activate adjacent tab
+        // Filter to only tabs for the same connection
+        const connectionTabs = newTabs.filter((t) => t.connectionId === connectionId);
+        const oldConnectionTabs = tabs.filter((t) => t.connectionId === connectionId);
+        const tabIndexInConnection = oldConnectionTabs.findIndex((t) => t.id === tabId);
+
+        // If closing active tab, activate adjacent tab from same connection
         let newActiveTabId = store.activeTabId();
         if (newActiveTabId === tabId) {
-          if (newTabs.length === 0) {
+          if (connectionTabs.length === 0) {
             newActiveTabId = null;
-          } else if (tabIndex >= newTabs.length) {
-            newActiveTabId = newTabs[newTabs.length - 1].id;
+          } else if (tabIndexInConnection >= connectionTabs.length) {
+            newActiveTabId = connectionTabs[connectionTabs.length - 1].id;
           } else {
-            newActiveTabId = newTabs[tabIndex].id;
+            newActiveTabId = connectionTabs[Math.max(0, tabIndexInConnection)].id;
           }
         }
 

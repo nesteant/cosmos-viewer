@@ -172,6 +172,84 @@ import { ConnectionsStore } from '../../store';
         />
       </mat-form-field>
 
+      <!-- Appearance Section -->
+      <div class="appearance-section">
+        <button
+          type="button"
+          class="appearance-toggle"
+          (click)="showAppearance = !showAppearance"
+        >
+          <mat-icon>{{ showAppearance ? 'expand_less' : 'palette' }}</mat-icon>
+          <span>Customize Appearance</span>
+          @if (!showAppearance && hasAppearanceSet()) {
+            <span class="appearance-preview" [style.background]="form.get('bgColor')?.value || getDefaultBgColor()" [style.color]="form.get('iconColor')?.value || getDefaultIconColor()">
+              {{ form.get('prefix')?.value || getDefaultPrefix() }}
+            </span>
+          }
+        </button>
+
+        @if (showAppearance) {
+          <div class="appearance-fields">
+            <div class="appearance-preview-large">
+              <div
+                class="preview-icon"
+                [style.background]="form.get('bgColor')?.value || getDefaultBgColor()"
+                [style.color]="form.get('iconColor')?.value || getDefaultIconColor()"
+              >
+                {{ form.get('prefix')?.value || getDefaultPrefix() }}
+              </div>
+              <span class="preview-label">Preview</span>
+            </div>
+
+            <mat-form-field appearance="outline" class="prefix-field">
+              <mat-label>Prefix (2-3 letters)</mat-label>
+              <input
+                matInput
+                formControlName="prefix"
+                [placeholder]="getDefaultPrefix()"
+                maxlength="3"
+                autocomplete="off"
+              />
+              <mat-hint>Shown in sidebar</mat-hint>
+            </mat-form-field>
+
+            <div class="color-pickers">
+              <div class="color-field">
+                <label>Background</label>
+                <div class="color-options">
+                  @for (color of bgColorOptions; track color.value) {
+                    <button
+                      type="button"
+                      class="color-option"
+                      [class.selected]="(form.get('bgColor')?.value || getDefaultBgColor()) === color.value"
+                      [style.background]="color.value"
+                      [matTooltip]="color.name"
+                      (click)="form.patchValue({ bgColor: color.value })"
+                    ></button>
+                  }
+                </div>
+              </div>
+
+              <div class="color-field">
+                <label>Text Color</label>
+                <div class="color-options">
+                  @for (color of iconColorOptions; track color.value) {
+                    <button
+                      type="button"
+                      class="color-option"
+                      [class.selected]="(form.get('iconColor')?.value || getDefaultIconColor()) === color.value"
+                      [style.background]="color.value"
+                      [matTooltip]="color.name"
+                      (click)="form.patchValue({ iconColor: color.value })"
+                    ></button>
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+
       <div class="form-actions">
         <button
           mat-stroked-button
@@ -361,6 +439,127 @@ import { ConnectionsStore } from '../../store';
       mat-divider {
         margin: 4px 0 8px;
       }
+
+      .appearance-section {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .appearance-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 12px 16px;
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.15s;
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+
+        mat-icon {
+          font-size: 20px;
+          width: 20px;
+          height: 20px;
+        }
+      }
+
+      .appearance-preview {
+        margin-left: auto;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .appearance-fields {
+        padding: 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .appearance-preview-large {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .preview-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: -0.5px;
+      }
+
+      .preview-label {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.4);
+      }
+
+      .prefix-field {
+        max-width: 150px;
+      }
+
+      .color-pickers {
+        display: flex;
+        gap: 24px;
+      }
+
+      .color-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+
+        label {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.6);
+        }
+      }
+
+      .color-options {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .color-option {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        border: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s;
+
+        &:hover {
+          transform: scale(1.1);
+        }
+
+        &.selected {
+          border-color: #fff;
+          box-shadow: 0 0 0 2px rgba(187, 134, 252, 0.5);
+        }
+      }
     `,
   ],
 })
@@ -373,10 +572,37 @@ export class ConnectionFormComponent implements OnInit {
   cancel = output<void>();
 
   showKey = false;
+  showAppearance = false;
   connectionStringInput = '';
   parsedConnectionInfo = signal<{ account: string; host: string } | null>(null);
   parseError = signal<string | null>(null);
   selectedProviderType = signal<ProviderType>('cosmos-sql');
+
+  // Color options for appearance customization
+  bgColorOptions = [
+    { name: 'Azure Blue', value: 'rgba(0, 120, 212, 0.3)' },
+    { name: 'Green', value: 'rgba(76, 175, 80, 0.3)' },
+    { name: 'Purple', value: 'rgba(156, 39, 176, 0.3)' },
+    { name: 'Orange', value: 'rgba(255, 152, 0, 0.3)' },
+    { name: 'Red', value: 'rgba(244, 67, 54, 0.3)' },
+    { name: 'Teal', value: 'rgba(0, 150, 136, 0.3)' },
+    { name: 'Pink', value: 'rgba(233, 30, 99, 0.3)' },
+    { name: 'Indigo', value: 'rgba(63, 81, 181, 0.3)' },
+    { name: 'Cyan', value: 'rgba(0, 188, 212, 0.3)' },
+    { name: 'Amber', value: 'rgba(255, 193, 7, 0.3)' },
+  ];
+
+  iconColorOptions = [
+    { name: 'White', value: '#ffffff' },
+    { name: 'Light Blue', value: '#60a5fa' },
+    { name: 'Light Green', value: '#86efac' },
+    { name: 'Light Purple', value: '#c4b5fd' },
+    { name: 'Light Orange', value: '#fdba74' },
+    { name: 'Light Red', value: '#fca5a5' },
+    { name: 'Light Teal', value: '#5eead4' },
+    { name: 'Light Pink', value: '#f9a8d4' },
+    { name: 'Light Yellow', value: '#fde047' },
+  ];
 
   form = this.fb.group({
     providerType: ['cosmos-sql' as ProviderType, Validators.required],
@@ -384,6 +610,10 @@ export class ConnectionFormComponent implements OnInit {
     endpoint: ['', Validators.required],
     key: [''], // Optional for MongoDB
     defaultDatabase: [''],
+    // Appearance fields
+    prefix: [''],
+    bgColor: [''],
+    iconColor: [''],
   });
 
   constructor() {
@@ -432,8 +662,15 @@ export class ConnectionFormComponent implements OnInit {
         endpoint: connection.endpoint,
         key: connection.key ?? '',
         defaultDatabase: connection.defaultDatabase ?? '',
+        prefix: connection.appearance?.prefix ?? '',
+        bgColor: connection.appearance?.bgColor ?? '',
+        iconColor: connection.appearance?.iconColor ?? '',
       });
       this.updateValidators(connection.providerType);
+      // Show appearance section if customized
+      if (connection.appearance?.prefix || connection.appearance?.bgColor || connection.appearance?.iconColor) {
+        this.showAppearance = true;
+      }
       // Show parsed info for existing MongoDB connections
       if (connection.providerType === 'cosmos-mongo' && connection.endpoint) {
         this.connectionStringInput = connection.endpoint;
@@ -595,13 +832,22 @@ export class ConnectionFormComponent implements OnInit {
   async onSubmit() {
     if (!this.isFormValidForTest()) return;
 
-    const { providerType, name, endpoint, key, defaultDatabase } = this.form.value;
+    const { providerType, name, endpoint, key, defaultDatabase, prefix, bgColor, iconColor } = this.form.value;
+
+    // Build appearance object only if customized
+    const appearance = (prefix || bgColor || iconColor) ? {
+      prefix: prefix || undefined,
+      bgColor: bgColor || undefined,
+      iconColor: iconColor || undefined,
+    } : undefined;
+
     const connectionData = {
       providerType: providerType as ProviderType,
       name: name!,
       endpoint: endpoint!,
       key: providerType === 'cosmos-mongo' ? '' : key!,
       defaultDatabase: defaultDatabase || undefined,
+      appearance,
     };
 
     try {
@@ -619,6 +865,52 @@ export class ConnectionFormComponent implements OnInit {
       }
     } catch {
       // Error handled by store
+    }
+  }
+
+  // Appearance helper methods
+  hasAppearanceSet(): boolean {
+    const { prefix, bgColor, iconColor } = this.form.value;
+    return !!(prefix || bgColor || iconColor);
+  }
+
+  getDefaultPrefix(): string {
+    const name = this.form.get('name')?.value?.trim() || '';
+    if (!name) return 'DB';
+    if (name.length <= 3) return name.toUpperCase();
+
+    const words = name.split(/[\s-_]+/).filter((w: string) => w.length > 0);
+    if (words.length >= 2) {
+      return words.slice(0, 3).map((w: string) => w[0]).join('').toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  }
+
+  getDefaultBgColor(): string {
+    const providerType = this.selectedProviderType();
+    switch (providerType) {
+      case 'cosmos-sql':
+        return 'rgba(0, 120, 212, 0.3)';
+      case 'cosmos-mongo':
+        return 'rgba(76, 175, 80, 0.3)';
+      case 'mongodb':
+        return 'rgba(0, 237, 100, 0.25)';
+      default:
+        return 'rgba(255, 255, 255, 0.1)';
+    }
+  }
+
+  getDefaultIconColor(): string {
+    const providerType = this.selectedProviderType();
+    switch (providerType) {
+      case 'cosmos-sql':
+        return '#60a5fa';
+      case 'cosmos-mongo':
+        return '#86efac';
+      case 'mongodb':
+        return '#4ade80';
+      default:
+        return '#ffffff';
     }
   }
 }
