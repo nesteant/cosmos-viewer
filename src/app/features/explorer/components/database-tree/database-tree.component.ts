@@ -17,7 +17,7 @@ import { ExplorerStore } from '../../store';
     MatProgressSpinnerModule,
   ],
   template: `
-    <div class="tree-header">
+    <div class="tree-header dense-buttons">
       <span class="tree-title">Databases</span>
       <button
         mat-icon-button
@@ -43,15 +43,19 @@ import { ExplorerStore } from '../../store';
       <div class="tree-container">
         @for (db of explorerStore.databases(); track db.id) {
           <div class="tree-node database" (click)="onToggleNode(db)">
-            <mat-icon class="expand-icon">
-              {{ explorerStore.expandedNodes().has(db.id) ? 'expand_more' : 'chevron_right' }}
-            </mat-icon>
+            @if (!hasLoadedContainers(db.id) || getContainers(db.id).length > 0) {
+              <mat-icon class="expand-icon">
+                {{ explorerStore.expandedNodes().has(db.id) ? 'expand_more' : 'chevron_right' }}
+              </mat-icon>
+            } @else {
+              <span class="expand-icon-placeholder"></span>
+            }
             <mat-icon class="node-icon database-icon">storage</mat-icon>
             <span class="node-name">{{ db.name }}</span>
           </div>
 
           @if (explorerStore.expandedNodes().has(db.id)) {
-            @if (getContainers(db.id).length === 0 && explorerStore.isLoadingContainers()) {
+            @if (!hasLoadedContainers(db.id)) {
               <div class="loading-containers">
                 <mat-spinner diameter="16"></mat-spinner>
               </div>
@@ -89,18 +93,6 @@ import { ExplorerStore } from '../../store';
         padding: 4px 8px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         min-height: 32px;
-
-        button {
-          width: 28px;
-          height: 28px;
-          line-height: 28px;
-
-          mat-icon {
-            font-size: 18px;
-            width: 18px;
-            height: 18px;
-          }
-        }
       }
 
       .tree-title {
@@ -179,6 +171,14 @@ import { ExplorerStore } from '../../store';
         color: rgba(255, 255, 255, 0.4);
       }
 
+      .expand-icon-placeholder {
+        width: 16px;
+        height: 16px;
+        margin-left: 4px;
+        margin-right: 2px;
+        flex-shrink: 0;
+      }
+
       .node-icon {
         font-size: 16px;
         width: 16px;
@@ -227,6 +227,10 @@ export class DatabaseTreeComponent implements OnInit {
 
   getContainers(databaseId: string): ContainerInfo[] {
     return this.explorerStore.containers().get(databaseId) ?? [];
+  }
+
+  hasLoadedContainers(databaseId: string): boolean {
+    return this.explorerStore.containers().has(databaseId);
   }
 
   onToggleNode(db: { id: string; name: string }) {

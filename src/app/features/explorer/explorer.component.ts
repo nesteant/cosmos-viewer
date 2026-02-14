@@ -35,51 +35,47 @@ import { WelcomePanelComponent } from './components/welcome-panel/welcome-panel.
   ],
   template: `
     <div class="explorer-layout">
-      <!-- Connections Activity Bar (always visible) -->
-      <app-connections-bar
-        [connections]="connectionsStore.connections()"
-        [selectedConnectionId]="connectionsStore.selectedConnection()?.id ?? null"
-        (backClicked)="onBackToConnections()"
-        (connectionSelected)="onConnectionSelected($event)"
-        (settingsClicked)="onSettingsClicked()"
-      />
+      <!-- Left Panel: Connections Bar + Database Tree -->
+      <div class="left-panel">
+        <!-- Connections Activity Bar (always visible) -->
+        <app-connections-bar
+          [connections]="connectionsStore.connections()"
+          [selectedConnectionId]="connectionsStore.selectedConnection()?.id ?? null"
+          [sidebarCollapsed]="sidebarCollapsed()"
+          (backClicked)="onBackToConnections()"
+          (connectionSelected)="onConnectionSelected($event)"
+          (settingsClicked)="onSettingsClicked()"
+          (expandSidebar)="toggleSidebar()"
+        />
 
-      <!-- Database Tree Sidebar -->
-      <aside class="explorer-sidebar" [class.collapsed]="sidebarCollapsed()">
+        <!-- Database Tree Sidebar -->
         @if (!sidebarCollapsed()) {
-          <div class="sidebar-header">
-            <span class="connection-name">
-              {{ connectionsStore.selectedConnection()?.name ?? 'Connection' }}
-            </span>
-            @if (connectionsStore.selectedConnection()?.providerType; as providerType) {
-              <span class="provider-badge" [class]="'provider-' + providerType">
-                {{ getProviderLabel(providerType) }}
+          <aside class="explorer-sidebar">
+            <div class="sidebar-header dense-buttons">
+              <span class="connection-name">
+                {{ connectionsStore.selectedConnection()?.name ?? 'Connection' }}
               </span>
-            }
-            <span class="spacer"></span>
-            <button
-              mat-icon-button
-              matTooltip="Collapse"
-              (click)="toggleSidebar()"
-              class="collapse-btn"
-            >
-              <mat-icon>chevron_left</mat-icon>
-            </button>
-          </div>
-          <app-database-tree
-            (containerSelected)="onContainerSelected($event)"
-          />
-        } @else {
-          <button
-            mat-icon-button
-            matTooltip="Expand Sidebar"
-            (click)="toggleSidebar()"
-            class="expand-btn"
-          >
-            <mat-icon>chevron_right</mat-icon>
-          </button>
+              @if (connectionsStore.selectedConnection()?.providerType; as providerType) {
+                <span class="provider-badge" [class]="'provider-' + providerType">
+                  {{ getProviderLabel(providerType) }}
+                </span>
+              }
+              <span class="spacer"></span>
+              <button
+                mat-icon-button
+                class="collapse-btn"
+                matTooltip="Collapse"
+                (click)="toggleSidebar()"
+              >
+                <mat-icon>chevron_left</mat-icon>
+              </button>
+            </div>
+            <app-database-tree
+              (containerSelected)="onContainerSelected($event)"
+            />
+          </aside>
         }
-      </aside>
+      </div>
 
       <!-- Resizer -->
       @if (!sidebarCollapsed()) {
@@ -176,6 +172,14 @@ import { WelcomePanelComponent } from './components/welcome-panel/welcome-panel.
         overflow: hidden;
       }
 
+      /* Left panel containing connections bar + database tree */
+      .left-panel {
+        display: flex;
+        height: 100%;
+        flex-shrink: 0;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
       /* Database Tree Sidebar */
       .explorer-sidebar {
         height: 100%;
@@ -183,17 +187,9 @@ import { WelcomePanelComponent } from './components/welcome-panel/welcome-panel.
         flex-direction: column;
         background: rgba(0, 0, 0, 0.2);
         overflow: hidden;
-        transition: width 0.15s ease;
         width: var(--sidebar-width, 220px);
         min-width: var(--sidebar-width, 220px);
-        border-right: 1px solid rgba(255, 255, 255, 0.06);
-      }
-
-      .explorer-sidebar.collapsed {
-        width: 32px;
-        min-width: 32px;
-        align-items: center;
-        padding-top: 4px;
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
       }
 
       /* Expanded sidebar */
@@ -233,24 +229,13 @@ import { WelcomePanelComponent } from './components/welcome-panel/welcome-panel.
         flex: 1;
       }
 
-      .collapse-btn,
-      .expand-btn {
+      .collapse-btn {
         opacity: 0.5;
         transition: opacity 0.15s;
-        width: 24px;
-        height: 24px;
-        line-height: 24px;
 
-        mat-icon {
-          font-size: 18px;
-          width: 18px;
-          height: 18px;
+        &:hover {
+          opacity: 1;
         }
-      }
-
-      .collapse-btn:hover,
-      .expand-btn:hover {
-        opacity: 1;
       }
 
       /* Sidebar resizer */
@@ -373,7 +358,16 @@ export class ExplorerComponent implements OnInit, OnDestroy {
   async ngOnInit() {
     // Load connections if not already loaded
     if (!this.connectionsStore.hasConnections()) {
-      this.connectionsStore.loadConnections();
+      await this.connectionsStore.loadConnections();
+    }
+
+    // Restore selected connection from sessionStorage
+    const activeConnectionId = sessionStorage.getItem('activeConnectionId');
+    if (activeConnectionId) {
+      this.explorerStore.setActiveConnection(activeConnectionId);
+      if (!this.connectionsStore.selectedConnection()) {
+        this.connectionsStore.selectConnection(activeConnectionId);
+      }
     }
 
     // Load layout preferences
@@ -430,7 +424,7 @@ export class ExplorerComponent implements OnInit, OnDestroy {
 
   onBackToConnections() {
     this.explorerStore.clearSelection();
-    sessionStorage.removeItem('activeConnectionId');
+    this.explorerStore.setActiveConnection(null);
     this.router.navigate(['/connections']);
   }
 
@@ -444,17 +438,22 @@ export class ExplorerComponent implements OnInit, OnDestroy {
 
       // Select new connection
       this.connectionsStore.selectConnection(connection.id);
-      sessionStorage.setItem('activeConnectionId', connection.id);
+      this.explorerStore.setActiveConnection(connection.id);
 
-      // Reset explorer state for new connection
-      this.explorerStore.reset();
-      this.queryStore.reset();
+      // Reset only tree state, preserve tabs
+      this.explorerStore.resetTreeState();
 
       // Load databases for new connection
       this.explorerStore.loadDatabases();
 
-      // Sync tabs to new connection
+      // Sync active tab to new connection (switch to a tab for this connection if exists)
       this.explorerStore.syncActiveTabToConnection();
+
+      // Update query store to match active tab
+      const activeTabId = this.explorerStore.activeTabId();
+      if (activeTabId) {
+        this.queryStore.setActiveTab(activeTabId);
+      }
     }
   }
 

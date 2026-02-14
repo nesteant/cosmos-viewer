@@ -34,7 +34,7 @@ import { ConnectionsStore } from '../../store';
         {{ editConnection() ? 'Edit Connection' : 'New Connection' }}
       </h2>
 
-      <mat-form-field appearance="outline">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
         <mat-label>Provider</mat-label>
         <mat-select formControlName="providerType">
           @for (provider of store.providers(); track provider.type) {
@@ -94,7 +94,7 @@ import { ConnectionsStore } from '../../store';
 
       <mat-divider></mat-divider>
 
-      <mat-form-field appearance="outline">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
         <mat-label>Display Name</mat-label>
         <input
           matInput
@@ -107,7 +107,7 @@ import { ConnectionsStore } from '../../store';
 
       <!-- Cosmos SQL fields -->
       @if (selectedProviderType() === 'cosmos-sql') {
-        <mat-form-field appearance="outline">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
           <mat-label>Endpoint URL</mat-label>
           <input
             matInput
@@ -118,7 +118,7 @@ import { ConnectionsStore } from '../../store';
           <mat-error>Valid endpoint URL is required</mat-error>
         </mat-form-field>
 
-        <mat-form-field appearance="outline">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
           <mat-label>Primary Key</mat-label>
           <input
             matInput
@@ -141,7 +141,7 @@ import { ConnectionsStore } from '../../store';
 
       <!-- Cosmos MongoDB fields -->
       @if (selectedProviderType() === 'cosmos-mongo') {
-        <mat-form-field appearance="outline">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
           <mat-label>Connection String</mat-label>
           <input
             matInput
@@ -162,7 +162,7 @@ import { ConnectionsStore } from '../../store';
         </mat-form-field>
       }
 
-      <mat-form-field appearance="outline">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
         <mat-label>Default Database (Optional)</mat-label>
         <input
           matInput
@@ -190,28 +190,28 @@ import { ConnectionsStore } from '../../store';
 
         @if (showAppearance) {
           <div class="appearance-fields">
-            <div class="appearance-preview-large">
-              <div
-                class="preview-icon"
-                [style.background]="form.get('bgColor')?.value || getDefaultBgColor()"
-                [style.color]="form.get('iconColor')?.value || getDefaultIconColor()"
-              >
-                {{ form.get('prefix')?.value || getDefaultPrefix() }}
+            <div class="prefix-row">
+              <div class="appearance-preview-large">
+                <div
+                  class="preview-icon"
+                  [style.background]="form.get('bgColor')?.value || getDefaultBgColor()"
+                  [style.color]="form.get('iconColor')?.value || getDefaultIconColor()"
+                >
+                  {{ form.get('prefix')?.value || getDefaultPrefix() }}
+                </div>
               </div>
-              <span class="preview-label">Preview</span>
-            </div>
 
-            <mat-form-field appearance="outline" class="prefix-field">
-              <mat-label>Prefix (2-3 letters)</mat-label>
-              <input
-                matInput
-                formControlName="prefix"
-                [placeholder]="getDefaultPrefix()"
-                maxlength="3"
-                autocomplete="off"
-              />
-              <mat-hint>Shown in sidebar</mat-hint>
-            </mat-form-field>
+              <mat-form-field appearance="outline" class="prefix-field">
+                <mat-label>Prefix</mat-label>
+                <input
+                  matInput
+                  formControlName="prefix"
+                  [placeholder]="getDefaultPrefix()"
+                  maxlength="3"
+                  autocomplete="off"
+                />
+              </mat-form-field>
+            </div>
 
             <div class="color-pickers">
               <div class="color-field">
@@ -306,13 +306,13 @@ import { ConnectionsStore } from '../../store';
         display: flex;
         flex-direction: column;
         gap: 12px;
-        padding: 20px;
+        padding: 16px;
         max-width: 500px;
       }
 
       .form-title {
-        margin: 0;
-        font-size: 18px;
+        margin: 0 0 4px;
+        font-size: 16px;
         font-weight: 500;
       }
 
@@ -372,8 +372,8 @@ import { ConnectionsStore } from '../../store';
 
       .connection-string-section {
         background: rgba(255, 255, 255, 0.03);
-        border-radius: 8px;
-        padding: 12px;
+        border-radius: 6px;
+        padding: 10px;
         padding-bottom: 4px;
       }
 
@@ -443,7 +443,7 @@ import { ConnectionsStore } from '../../store';
       .appearance-section {
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 8px;
+        border-radius: 6px;
         overflow: hidden;
       }
 
@@ -452,11 +452,11 @@ import { ConnectionsStore } from '../../store';
         align-items: center;
         gap: 8px;
         width: 100%;
-        padding: 12px 16px;
+        padding: 10px 12px;
         background: none;
         border: none;
         color: rgba(255, 255, 255, 0.7);
-        font-size: 13px;
+        font-size: 12px;
         cursor: pointer;
         transition: background 0.15s;
 
@@ -465,94 +465,99 @@ import { ConnectionsStore } from '../../store';
         }
 
         mat-icon {
-          font-size: 20px;
-          width: 20px;
-          height: 20px;
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
         }
       }
 
       .appearance-preview {
         margin-left: auto;
-        width: 24px;
-        height: 24px;
-        border-radius: 6px;
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 700;
         text-transform: uppercase;
       }
 
       .appearance-fields {
-        padding: 16px;
+        padding: 12px;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 12px;
+      }
+
+      .prefix-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
       }
 
       .appearance-preview-large {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
+        flex-shrink: 0;
+        margin-top: 8px;
       }
 
       .preview-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 16px;
+        font-size: 14px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: -0.5px;
       }
 
-      .preview-label {
-        font-size: 11px;
-        color: rgba(255, 255, 255, 0.4);
-      }
-
       .prefix-field {
-        max-width: 150px;
+        flex: 1;
+        max-width: 180px;
       }
 
       .color-pickers {
         display: flex;
-        gap: 24px;
+        flex-direction: column;
+        gap: 10px;
       }
 
       .color-field {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
+        flex: 1;
+        min-width: 0;
 
         label {
-          font-size: 12px;
+          font-size: 11px;
           color: rgba(255, 255, 255, 0.6);
+          white-space: nowrap;
         }
       }
 
       .color-options {
         display: flex;
-        gap: 6px;
+        gap: 4px;
         flex-wrap: wrap;
       }
 
       .color-option {
-        width: 28px;
-        height: 28px;
-        border-radius: 6px;
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
         border: 2px solid transparent;
         cursor: pointer;
         transition: all 0.15s;
 
         &:hover {
-          transform: scale(1.1);
+          transform: scale(1.15);
+          z-index: 1;
         }
 
         &.selected {
@@ -578,30 +583,65 @@ export class ConnectionFormComponent implements OnInit {
   parseError = signal<string | null>(null);
   selectedProviderType = signal<ProviderType>('cosmos-sql');
 
-  // Color options for appearance customization
+  // Background colors - rich & pastel variants per color family
   bgColorOptions = [
-    { name: 'Azure Blue', value: 'rgba(0, 120, 212, 0.3)' },
-    { name: 'Green', value: 'rgba(76, 175, 80, 0.3)' },
-    { name: 'Purple', value: 'rgba(156, 39, 176, 0.3)' },
-    { name: 'Orange', value: 'rgba(255, 152, 0, 0.3)' },
-    { name: 'Red', value: 'rgba(244, 67, 54, 0.3)' },
-    { name: 'Teal', value: 'rgba(0, 150, 136, 0.3)' },
-    { name: 'Pink', value: 'rgba(233, 30, 99, 0.3)' },
-    { name: 'Indigo', value: 'rgba(63, 81, 181, 0.3)' },
-    { name: 'Cyan', value: 'rgba(0, 188, 212, 0.3)' },
-    { name: 'Amber', value: 'rgba(255, 193, 7, 0.3)' },
+    // Reds & Pinks
+    { name: 'Coral', value: '#ff6b6b' },
+    { name: 'Salmon', value: '#ff8787' },
+    { name: 'Rose', value: '#f783ac' },
+    { name: 'Blush', value: '#fcc2d7' },
+    // Oranges
+    { name: 'Tangerine', value: '#ff922b' },
+    { name: 'Peach', value: '#ffa94d' },
+    { name: 'Apricot', value: '#ffc078' },
+    // Yellows
+    { name: 'Honey', value: '#fcc419' },
+    { name: 'Butter', value: '#ffe066' },
+    { name: 'Cream', value: '#fff3bf' },
+    // Greens
+    { name: 'Emerald', value: '#51cf66' },
+    { name: 'Sage', value: '#8ce99a' },
+    { name: 'Mint', value: '#c3fae8' },
+    // Teals
+    { name: 'Teal', value: '#20c997' },
+    { name: 'Seafoam', value: '#63e6be' },
+    // Blues
+    { name: 'Ocean', value: '#339af0' },
+    { name: 'Sky', value: '#74c0fc' },
+    { name: 'Powder', value: '#a5d8ff' },
+    // Purples
+    { name: 'Violet', value: '#845ef7' },
+    { name: 'Lavender', value: '#b197fc' },
+    { name: 'Lilac', value: '#e5dbff' },
   ];
 
+  // Text colors - light to dark
   iconColorOptions = [
+    // Whites
     { name: 'White', value: '#ffffff' },
-    { name: 'Light Blue', value: '#60a5fa' },
-    { name: 'Light Green', value: '#86efac' },
-    { name: 'Light Purple', value: '#c4b5fd' },
-    { name: 'Light Orange', value: '#fdba74' },
-    { name: 'Light Red', value: '#fca5a5' },
-    { name: 'Light Teal', value: '#5eead4' },
-    { name: 'Light Pink', value: '#f9a8d4' },
-    { name: 'Light Yellow', value: '#fde047' },
+    { name: 'Snow', value: '#f8f9fa' },
+    // Light tints
+    { name: 'Cream', value: '#fff9db' },
+    { name: 'Blush', value: '#fff0f6' },
+    { name: 'Ice', value: '#e7f5ff' },
+    { name: 'Seafoam', value: '#e6fcf5' },
+    // Mid brights
+    { name: 'Lemon', value: '#ffe066' },
+    { name: 'Peach', value: '#ffc078' },
+    { name: 'Pink', value: '#faa2c1' },
+    { name: 'Sky', value: '#74c0fc' },
+    { name: 'Mint', value: '#63e6be' },
+    { name: 'Lavender', value: '#b197fc' },
+    // Rich tones
+    { name: 'Coral', value: '#ff6b6b' },
+    { name: 'Orange', value: '#ff922b' },
+    { name: 'Teal', value: '#20c997' },
+    { name: 'Blue', value: '#339af0' },
+    // Darks
+    { name: 'Navy', value: '#1c7ed6' },
+    { name: 'Forest', value: '#2f9e44' },
+    { name: 'Charcoal', value: '#495057' },
+    { name: 'Black', value: '#212529' },
   ];
 
   form = this.fb.group({
@@ -890,27 +930,17 @@ export class ConnectionFormComponent implements OnInit {
     const providerType = this.selectedProviderType();
     switch (providerType) {
       case 'cosmos-sql':
-        return 'rgba(0, 120, 212, 0.3)';
+        return '#339af0'; // Ocean
       case 'cosmos-mongo':
-        return 'rgba(76, 175, 80, 0.3)';
+        return '#51cf66'; // Emerald
       case 'mongodb':
-        return 'rgba(0, 237, 100, 0.25)';
+        return '#20c997'; // Teal
       default:
-        return 'rgba(255, 255, 255, 0.1)';
+        return '#334155';
     }
   }
 
   getDefaultIconColor(): string {
-    const providerType = this.selectedProviderType();
-    switch (providerType) {
-      case 'cosmos-sql':
-        return '#60a5fa';
-      case 'cosmos-mongo':
-        return '#86efac';
-      case 'mongodb':
-        return '#4ade80';
-      default:
-        return '#ffffff';
-    }
+    return '#ffffff';
   }
 }

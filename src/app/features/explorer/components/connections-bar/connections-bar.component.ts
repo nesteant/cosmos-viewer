@@ -9,15 +9,18 @@ import { DatabaseConnection } from '@core/models';
   standalone: true,
   imports: [MatIconModule, MatTooltipModule, MatButtonModule],
   template: `
-    <div class="connections-bar">
-      <button
-        mat-icon-button
-        class="back-btn"
-        matTooltip="Back to Connections"
-        (click)="backClicked.emit()"
-      >
-        <mat-icon>arrow_back</mat-icon>
-      </button>
+    <div class="connections-bar dense-buttons">
+      <!-- Expand sidebar button at top (shown when collapsed) -->
+      @if (sidebarCollapsed()) {
+        <button
+          mat-icon-button
+          class="expand-btn"
+          matTooltip="Expand Sidebar"
+          (click)="expandSidebar.emit()"
+        >
+          <mat-icon>chevron_right</mat-icon>
+        </button>
+      }
 
       <div class="connections-list">
         @for (conn of sortedConnections(); track conn.id) {
@@ -35,7 +38,14 @@ import { DatabaseConnection } from '@core/models';
         }
       </div>
 
-      <div class="spacer"></div>
+      <button
+        mat-icon-button
+        class="back-btn"
+        matTooltip="Back to Connections"
+        (click)="backClicked.emit()"
+      >
+        <mat-icon>arrow_back</mat-icon>
+      </button>
 
       <button
         mat-icon-button
@@ -61,18 +71,8 @@ import { DatabaseConnection } from '@core/models';
         width: 48px;
         height: 100%;
         background: rgba(0, 0, 0, 0.4);
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 4px 0;
-      }
-
-      .back-btn {
-        margin-bottom: 8px;
-        opacity: 0.7;
-        transition: opacity 0.15s;
-
-        &:hover {
-          opacity: 1;
-        }
+        padding: 8px 0;
+        box-sizing: border-box;
       }
 
       .connections-list {
@@ -82,6 +82,8 @@ import { DatabaseConnection } from '@core/models';
         overflow-y: auto;
         overflow-x: hidden;
         padding: 4px;
+        flex: 1 1 0;
+        min-height: 0;
 
         &::-webkit-scrollbar {
           width: 3px;
@@ -143,17 +145,25 @@ import { DatabaseConnection } from '@core/models';
         }
       }
 
-      .spacer {
-        flex: 1;
-      }
-
+      .expand-btn,
+      .back-btn,
       .settings-btn {
-        opacity: 0.5;
+        flex-shrink: 0;
+        opacity: 0.6;
         transition: opacity 0.15s;
 
         &:hover {
           opacity: 1;
         }
+      }
+
+      .expand-btn {
+        flex-shrink: 0;
+        margin-bottom: 8px;
+      }
+
+      .back-btn {
+        opacity: 0.7;
       }
     `,
   ],
@@ -161,10 +171,12 @@ import { DatabaseConnection } from '@core/models';
 export class ConnectionsBarComponent {
   connections = input.required<DatabaseConnection[]>();
   selectedConnectionId = input<string | null>(null);
+  sidebarCollapsed = input<boolean>(false);
 
   backClicked = output<void>();
   connectionSelected = output<DatabaseConnection>();
   settingsClicked = output<void>();
+  expandSidebar = output<void>();
 
   // Sort connections by order property
   sortedConnections = computed(() => {
@@ -204,29 +216,18 @@ export class ConnectionsBarComponent {
     // Default colors based on provider type
     switch (conn.providerType) {
       case 'cosmos-sql':
-        return 'rgba(0, 120, 212, 0.25)';
+        return '#339af0'; // Ocean
       case 'cosmos-mongo':
-        return 'rgba(76, 175, 80, 0.25)';
+        return '#51cf66'; // Emerald
       case 'mongodb':
-        return 'rgba(0, 237, 100, 0.2)';
+        return '#20c997'; // Teal
       default:
-        return 'rgba(255, 255, 255, 0.08)';
+        return '#845ef7'; // Violet
     }
   }
 
   getConnectionIconColor(conn: DatabaseConnection): string {
     if (conn.appearance?.iconColor) return conn.appearance.iconColor;
-
-    // Default icon colors based on provider type
-    switch (conn.providerType) {
-      case 'cosmos-sql':
-        return '#60a5fa';
-      case 'cosmos-mongo':
-        return '#86efac';
-      case 'mongodb':
-        return '#4ade80';
-      default:
-        return 'rgba(255, 255, 255, 0.85)';
-    }
+    return '#ffffff';
   }
 }

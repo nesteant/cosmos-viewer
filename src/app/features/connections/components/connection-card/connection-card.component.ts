@@ -21,7 +21,14 @@ import { DatabaseConnection, ProviderType } from '@core/models';
   template: `
     <mat-card class="connection-card" (click)="connect.emit(connection())">
       <mat-card-header>
-        <mat-icon mat-card-avatar class="db-icon">storage</mat-icon>
+        <div
+          mat-card-avatar
+          class="connection-avatar"
+          [style.background]="getConnectionBgColor()"
+          [style.color]="getConnectionIconColor()"
+        >
+          {{ getDisplayPrefix() }}
+        </div>
         <mat-card-title>{{ connection().name }}</mat-card-title>
         <mat-card-subtitle>
           {{ getEndpointHost(connection().endpoint) }}
@@ -112,16 +119,17 @@ import { DatabaseConnection, ProviderType } from '@core/models';
         color: #bb86fc;
       }
 
-      .db-icon {
-        background: rgba(103, 58, 183, 0.2);
-        color: #b39ddb;
+      .connection-avatar {
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 50%;
+        border-radius: 8px;
         width: 40px;
         height: 40px;
-        font-size: 20px;
+        font-size: 14px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: -0.5px;
       }
 
       .menu-trigger {
@@ -214,5 +222,45 @@ export class ConnectionCardComponent {
 
   getProviderLabel(providerType: ProviderType): string {
     return this.providerLabels[providerType] ?? providerType;
+  }
+
+  getDisplayPrefix(): string {
+    const conn = this.connection();
+    if (conn.appearance?.prefix) {
+      return conn.appearance.prefix;
+    }
+    // Generate prefix from name
+    const name = conn.name.trim();
+    if (name.length <= 3) return name.toUpperCase();
+
+    const words = name.split(/[\s-_]+/).filter(w => w.length > 0);
+    if (words.length >= 2) {
+      return words.slice(0, 3).map(w => w[0]).join('').toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  }
+
+  getConnectionBgColor(): string {
+    const conn = this.connection();
+    if (conn.appearance?.bgColor) return conn.appearance.bgColor;
+
+    // Default colors based on provider type
+    switch (conn.providerType) {
+      case 'cosmos-sql':
+        return '#339af0'; // Ocean
+      case 'cosmos-mongo':
+        return '#51cf66'; // Emerald
+      case 'mongodb':
+        return '#20c997'; // Teal
+      default:
+        return '#845ef7'; // Violet
+    }
+  }
+
+  getConnectionIconColor(): string {
+    const conn = this.connection();
+    if (conn.appearance?.iconColor) return conn.appearance.iconColor;
+
+    return '#ffffff';
   }
 }

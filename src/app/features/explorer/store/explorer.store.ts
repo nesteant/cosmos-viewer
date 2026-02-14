@@ -26,6 +26,8 @@ export interface ExplorerState {
   // Tab state
   tabs: TabState[];
   activeTabId: string | null;
+  // Active connection (for reactive filtering)
+  activeConnectionId: string | null;
 }
 
 const initialState: ExplorerState = {
@@ -37,6 +39,7 @@ const initialState: ExplorerState = {
   error: null,
   tabs: [],
   activeTabId: null,
+  activeConnectionId: null,
 };
 
 export const ExplorerStore = signalStore(
@@ -98,14 +101,14 @@ export const ExplorerStore = signalStore(
 
     // Get tabs filtered by current active connection
     connectionTabs: computed(() => {
-      const connectionId = sessionStorage.getItem('activeConnectionId');
+      const connectionId = store.activeConnectionId();
       if (!connectionId) return [];
       return store.tabs().filter((t) => t.connectionId === connectionId);
     }),
 
     // Check if there are tabs for the current connection
     hasConnectionTabs: computed(() => {
-      const connectionId = sessionStorage.getItem('activeConnectionId');
+      const connectionId = store.activeConnectionId();
       if (!connectionId) return false;
       return store.tabs().some((t) => t.connectionId === connectionId);
     }),
@@ -126,7 +129,7 @@ export const ExplorerStore = signalStore(
     const notificationService = inject(NotificationService);
 
     const getActiveConnectionId = (): string | null => {
-      return sessionStorage.getItem('activeConnectionId');
+      return store.activeConnectionId() ?? sessionStorage.getItem('activeConnectionId');
     };
 
     const generateTabId = (): string => {
@@ -134,6 +137,15 @@ export const ExplorerStore = signalStore(
     };
 
     return {
+      setActiveConnection(connectionId: string | null) {
+        patchState(store, { activeConnectionId: connectionId });
+        if (connectionId) {
+          sessionStorage.setItem('activeConnectionId', connectionId);
+        } else {
+          sessionStorage.removeItem('activeConnectionId');
+        }
+      },
+
       async loadDatabases() {
         const connectionId = getActiveConnectionId();
         if (!connectionId) {
@@ -141,7 +153,13 @@ export const ExplorerStore = signalStore(
           return;
         }
 
-        patchState(store, { isLoadingDatabases: true, error: null });
+        // Clear containers and expanded nodes when reloading databases
+        patchState(store, {
+          isLoadingDatabases: true,
+          error: null,
+          containers: new Map(),
+          expandedNodes: new Set(),
+        });
         try {
           const databases = await electronService.listDatabases(connectionId);
           patchState(store, {
@@ -330,6 +348,18 @@ export const ExplorerStore = signalStore(
       clearSelection() {
         patchState(store, {
           activeTabId: null,
+        });
+      },
+
+      // Reset only tree state, preserve tabs
+      resetTreeState() {
+        patchState(store, {
+          databases: [],
+          containers: new Map(),
+          expandedNodes: new Set(),
+          isLoadingDatabases: false,
+          isLoadingContainers: false,
+          error: null,
         });
       },
 

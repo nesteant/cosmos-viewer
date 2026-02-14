@@ -17,34 +17,38 @@ import { ExplorerStore } from '../../store';
           <p>Select a container from the sidebar to start querying your data</p>
         </div>
 
-        @if (explorerStore.databases().length > 0) {
-          <div class="quick-access">
-            <h3>Quick Access</h3>
-            <div class="containers-grid">
-              @for (db of explorerStore.databases(); track db.id) {
-                @if (explorerStore.expandedNodes().has(db.id)) {
-                  @for (container of getContainers(db.id); track container.id) {
-                    <button
-                      class="container-card"
-                      (click)="onContainerClick(container)"
-                    >
-                      <mat-icon class="card-icon">folder</mat-icon>
-                      <div class="card-content">
-                        <span class="card-name">{{ container.name }}</span>
-                        <span class="card-db">{{ db.name }}</span>
+        <div class="quick-access">
+          <h3>Quick Access</h3>
+
+          @if (explorerStore.databases().length === 0 || !hasExpandedContainers()) {
+            <p class="hint">Expand a database in the sidebar to see containers here</p>
+          } @else {
+              <div class="databases-list">
+                @for (db of explorerStore.databases(); track db.id) {
+                  @if (explorerStore.expandedNodes().has(db.id) && getContainers(db.id).length > 0) {
+                    <div class="database-section">
+                      <div class="database-header">
+                        <mat-icon>storage</mat-icon>
+                        <span>{{ db.name }}</span>
+                        <span class="container-count">{{ getContainers(db.id).length }}</span>
                       </div>
-                      <mat-icon class="card-arrow">arrow_forward</mat-icon>
-                    </button>
+                      <div class="containers-grid">
+                        @for (container of getContainers(db.id); track container.id) {
+                          <button
+                            class="container-tile"
+                            (click)="onContainerClick(container)"
+                          >
+                            <mat-icon class="tile-icon">folder</mat-icon>
+                            <span class="tile-name">{{ container.name }}</span>
+                          </button>
+                        }
+                      </div>
+                    </div>
                   }
                 }
-              }
-            </div>
-
-            @if (!hasExpandedContainers()) {
-              <p class="hint">Expand a database in the sidebar to see containers here</p>
-            }
-          </div>
-        }
+              </div>
+          }
+        </div>
 
         <div class="shortcuts">
           <h3>Keyboard Shortcuts</h3>
@@ -76,7 +80,7 @@ import { ExplorerStore } from '../../store';
       .welcome-panel {
         height: 100%;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         padding: 32px;
         overflow-y: auto;
@@ -85,6 +89,9 @@ import { ExplorerStore } from '../../store';
       .welcome-content {
         max-width: 600px;
         width: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
       }
 
       .welcome-header {
@@ -126,69 +133,109 @@ import { ExplorerStore } from '../../store';
         margin: 0 0 12px;
       }
 
-      .containers-grid {
+      .databases-list {
+        max-height: 320px;
+        overflow-y: auto;
         display: flex;
         flex-direction: column;
-        gap: 8px;
-      }
+        gap: 16px;
+        padding-right: 4px;
 
-      .container-card {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        text-align: left;
-        color: inherit;
+        &::-webkit-scrollbar {
+          width: 6px;
+        }
 
-        &:hover {
-          background: rgba(103, 58, 183, 0.15);
-          border-color: rgba(103, 58, 183, 0.3);
-
-          .card-arrow {
-            opacity: 1;
-            transform: translateX(4px);
-          }
+        &::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.15);
+          border-radius: 3px;
         }
       }
 
-      .card-icon {
-        color: #ce93d8;
-        font-size: 20px;
-        width: 20px;
-        height: 20px;
-      }
-
-      .card-content {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .card-name {
-        font-size: 14px;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.9);
+      .database-section {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 10px;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        flex-shrink: 0;
       }
 
-      .card-db {
-        font-size: 11px;
-        color: rgba(255, 255, 255, 0.4);
+      .database-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: rgba(144, 202, 249, 0.08);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        color: #90caf9;
+        font-size: 13px;
+        font-weight: 500;
+
+        mat-icon {
+          font-size: 18px;
+          width: 18px;
+          height: 18px;
+        }
+
+        .container-count {
+          margin-left: auto;
+          font-size: 11px;
+          padding: 2px 8px;
+          background: rgba(144, 202, 249, 0.15);
+          border-radius: 10px;
+          color: rgba(144, 202, 249, 0.8);
+        }
       }
 
-      .card-arrow {
-        color: rgba(255, 255, 255, 0.3);
-        opacity: 0;
+      .containers-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px;
+        max-height: 200px;
+        overflow-y: auto;
+
+        &::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        &::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.15);
+          border-radius: 2px;
+        }
+      }
+
+      .container-tile {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 6px;
+        cursor: pointer;
         transition: all 0.15s ease;
+        color: inherit;
+        flex-shrink: 0;
+
+        &:hover {
+          background: rgba(103, 58, 183, 0.2);
+          border-color: rgba(103, 58, 183, 0.4);
+          transform: translateY(-1px);
+        }
+      }
+
+      .tile-icon {
+        color: #ce93d8;
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
+
+      .tile-name {
+        font-size: 12px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.85);
+        white-space: nowrap;
       }
 
       .hint {
