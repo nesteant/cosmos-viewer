@@ -224,9 +224,9 @@ import { ImportExportService } from '../import-export/import-export.service';
                 mat-cell
                 *matCellDef="let doc; let i = index"
                 class="row-num-cell"
-                [class.row-selected]="isRowSelected(getDocId(doc))"
-                (mousedown)="onRowNumberMouseDown(getDocId(doc), $event)"
-                (mouseenter)="onRowNumberMouseEnter(getDocId(doc))"
+                [class.row-selected]="isRowSelected(getDocKey(doc))"
+                (mousedown)="onRowNumberMouseDown(getDocKey(doc), $event)"
+                (mouseenter)="onRowNumberMouseEnter(getDocKey(doc))"
               >
                 {{ i + 1 }}
               </td>
@@ -284,21 +284,21 @@ import { ImportExportService } from '../import-export/import-export.service';
                 <td
                   mat-cell
                   *matCellDef="let doc"
-                  [class.dirty]="queryStore.isFieldDirty(getDocId(doc), column)"
+                  [class.dirty]="queryStore.isFieldDirty(doc, column)"
                   [class.editable]="!isSystemField(column)"
-                  [class.cell-focused]="isCellFocused(getDocId(doc), column)"
-                  [class.cell-selected]="isCellInSelection(getDocId(doc), column)"
+                  [class.cell-focused]="isCellFocused(getDocKey(doc), column)"
+                  [class.cell-selected]="isCellInSelection(getDocKey(doc), column)"
                   [class.id-column]="isIdColumn(column)"
                   [class.partition-key-column]="isPartitionKeyField(column) && !isIdColumn(column)"
                   [class.system-column]="isSystemField(column)"
                   [style.width.px]="columnWidths()[column]"
                   [style.min-width.px]="columnWidths()[column]"
                   [style.max-width.px]="columnWidths()[column]"
-                  (mousedown)="onCellMouseDown(getDocId(doc), column, $event)"
-                  (mouseenter)="onCellMouseEnter(getDocId(doc), column)"
+                  (mousedown)="onCellMouseDown(getDocKey(doc), column, $event)"
+                  (mouseenter)="onCellMouseEnter(getDocKey(doc), column)"
                   (dblclick)="startEditing(doc, column)"
                 >
-                  @if (editingCell?.docId === getDocId(doc) && editingCell?.path === column) {
+                  @if (editingCell?.docKey === getDocId(doc) && editingCell?.path === column) {
                     <div class="inline-editor" (mousedown)="$event.stopPropagation()">
                       <input
                         #editInput
@@ -360,7 +360,7 @@ import { ImportExportService } from '../import-export/import-export.service';
             <tr
               mat-row
               *matRowDef="let row; columns: allColumns()"
-              [class.dirty-row]="queryStore.isDocumentDirty(getDocId(row))"
+              [class.dirty-row]="queryStore.isDocumentDirty(row)"
               [class.pending-delete-row]="isMarkedForDeletion(row)"
               (contextmenu)="onRowContextMenu($event, row)"
             ></tr>
@@ -396,7 +396,7 @@ import { ImportExportService } from '../import-export/import-export.service';
               </button>
               <div class="context-menu-divider"></div>
             }
-            @if (queryStore.isDocumentDirty(getDocId(contextMenu()!.doc)) && !isMarkedForDeletion(contextMenu()!.doc)) {
+            @if (queryStore.isDocumentDirty(contextMenu()!.doc) && !isMarkedForDeletion(contextMenu()!.doc)) {
               <button class="context-menu-item" (click)="onSaveDocument(contextMenu()!.doc); closeContextMenu()">
                 <mat-icon>save</mat-icon>
                 Save Changes
@@ -1246,17 +1246,17 @@ export class ResultsTableComponent {
 
   container = input<ContainerInfo | null>(null);
 
-  editingCell: { docId: string; path: string } | null = null;
+  editingCell: { docKey: string; path: string } | null = null;
   editingValue = '';
   importType: 'json' | 'csv' = 'json';
   private isEditingCancelled = false;
 
-  // Keyboard navigation - track by docId and column path for mat-table compatibility
-  focusedCell = signal<{ docId: string; path: string } | null>(null);
+  // Keyboard navigation - track by docKey (includes partition key) and column path
+  focusedCell = signal<{ docKey: string; path: string } | null>(null);
 
   // Area selection for copy/paste
-  selectionStart = signal<{ docId: string; path: string } | null>(null);
-  selectionEnd = signal<{ docId: string; path: string } | null>(null);
+  selectionStart = signal<{ docKey: string; path: string } | null>(null);
+  selectionEnd = signal<{ docKey: string; path: string } | null>(null);
   isDragging = signal(false);
 
   // Type selection for inline editing
@@ -1474,6 +1474,16 @@ export class ResultsTableComponent {
     return this.strategy().getDocumentId(doc);
   }
 
+  // Get unique document key (includes partition key for uniqueness)
+  getDocKey(doc: CosmosDocument): string {
+    return this.queryStore.getDocumentKey(doc);
+  }
+
+  // Find document by its unique key
+  findDocByKey(key: string): CosmosDocument | undefined {
+    return this.processedDocuments().find(d => this.getDocKey(d) === key);
+  }
+
   // Column visibility methods
   isColumnVisible(path: string): boolean {
     const pref = this.columnPrefs().find(p => p.path === path);
@@ -1648,7 +1658,7 @@ export class ResultsTableComponent {
       // If start and end are the same, clear selection (single cell click)
       const start = this.selectionStart();
       const end = this.selectionEnd();
-      if (start && end && start.docId === end.docId && start.path === end.path) {
+      if (start && end && start.docKey === end.docKey && start.path === end.path) {
         this.selectionStart.set(null);
         this.selectionEnd.set(null);
       }
@@ -1657,7 +1667,7 @@ export class ResultsTableComponent {
     // Handle row selection drag end
     if (this.isRowDragging()) {
       this.isRowDragging.set(false);
-      this.rowDragStartDocId.set(null);
+      this.rowDragStartDocKey.set(null);
       // Focus table for keyboard events after row selection
       this.refocusTable();
     }
@@ -1700,7 +1710,7 @@ export class ResultsTableComponent {
 
     // Type to edit: if a cell is focused and user types a printable character, start editing
     if (focused && !isNavKey && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.length === 1) {
-      const doc = docs.find(d => this.getDocId(d) === focused.docId);
+      const doc = docs.find(d => this.getDocKey(d) === focused.docKey);
       if (doc && !this.isSystemField(focused.path)) {
         event.preventDefault();
         this.startEditingWithChar(doc, focused.path, event.key);
@@ -1712,7 +1722,7 @@ export class ResultsTableComponent {
     if (docs.length === 0 || columns.length === 0) return;
 
     // Get current position
-    let rowIndex = focused ? docs.findIndex(d => this.getDocId(d) === focused.docId) : -1;
+    let rowIndex = focused ? docs.findIndex(d => this.getDocKey(d) === focused.docKey) : -1;
     let colIndex = focused ? columns.indexOf(focused.path) : -1;
 
     // Handle shift+arrow for area selection
@@ -1725,10 +1735,10 @@ export class ResultsTableComponent {
       case 'ArrowDown':
         event.preventDefault();
         if (!focused) {
-          this.focusedCell.set({ docId: this.getDocId(docs[0]), path: columns[0] });
+          this.focusedCell.set({ docKey: this.getDocKey(docs[0]), path: columns[0] });
           this.clearSelection();
         } else if (rowIndex < docs.length - 1) {
-          const newCell = { docId: this.getDocId(docs[rowIndex + 1]), path: columns[colIndex] };
+          const newCell = { docKey: this.getDocKey(docs[rowIndex + 1]), path: columns[colIndex] };
           if (isShift) {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1742,7 +1752,7 @@ export class ResultsTableComponent {
       case 'ArrowUp':
         event.preventDefault();
         if (focused && rowIndex > 0) {
-          const newCell = { docId: this.getDocId(docs[rowIndex - 1]), path: columns[colIndex] };
+          const newCell = { docKey: this.getDocKey(docs[rowIndex - 1]), path: columns[colIndex] };
           if (isShift) {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1757,10 +1767,10 @@ export class ResultsTableComponent {
       case 'Tab':
         event.preventDefault();
         if (!focused) {
-          this.focusedCell.set({ docId: this.getDocId(docs[0]), path: columns[0] });
+          this.focusedCell.set({ docKey: this.getDocKey(docs[0]), path: columns[0] });
           this.clearSelection();
         } else if (colIndex < columns.length - 1) {
-          const newCell = { docId: this.getDocId(docs[rowIndex]), path: columns[colIndex + 1] };
+          const newCell = { docKey: this.getDocKey(docs[rowIndex]), path: columns[colIndex + 1] };
           if (isShift && event.key === 'ArrowRight') {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1769,7 +1779,7 @@ export class ResultsTableComponent {
           this.focusedCell.set(newCell);
         } else if (event.key === 'Tab' && rowIndex < docs.length - 1) {
           // Tab at end of row goes to first column of next row
-          const newCell = { docId: this.getDocId(docs[rowIndex + 1]), path: columns[0] };
+          const newCell = { docKey: this.getDocKey(docs[rowIndex + 1]), path: columns[0] };
           this.focusedCell.set(newCell);
           this.clearSelection();
         }
@@ -1779,7 +1789,7 @@ export class ResultsTableComponent {
       case 'ArrowLeft':
         event.preventDefault();
         if (focused && colIndex > 0) {
-          const newCell = { docId: this.getDocId(docs[rowIndex]), path: columns[colIndex - 1] };
+          const newCell = { docKey: this.getDocKey(docs[rowIndex]), path: columns[colIndex - 1] };
           if (isShift) {
             this.extendSelectionFrom(originalFocused!, newCell);
           } else {
@@ -1793,7 +1803,7 @@ export class ResultsTableComponent {
       case 'Enter':
         event.preventDefault();
         if (focused) {
-          const doc = docs.find(d => this.getDocId(d) === focused.docId);
+          const doc = docs.find(d => this.getDocKey(d) === focused.docKey);
           if (doc) {
             this.startEditing(doc, focused.path);
           }
@@ -1819,7 +1829,7 @@ export class ResultsTableComponent {
       return;
     }
 
-    this.editingCell = { docId: this.getDocId(doc), path };
+    this.editingCell = { docKey: this.getDocKey(doc), path };
     this.editingValue = char;
 
     this.updateApplicableTypes(this.editingValue, false);
@@ -1858,14 +1868,14 @@ export class ResultsTableComponent {
     this.selectionEnd.set(null);
   }
 
-  private extendSelectionFrom(startCell: { docId: string; path: string }, endCell: { docId: string; path: string }) {
+  private extendSelectionFrom(startCell: { docKey: string; path: string }, endCell: { docKey: string; path: string }) {
     if (!this.selectionStart()) {
       this.selectionStart.set(startCell);
     }
     this.selectionEnd.set(endCell);
   }
 
-  getSelectedCells(): Array<{ docId: string; path: string }> {
+  getSelectedCells(): Array<{ docKey: string; path: string }> {
     const start = this.selectionStart();
     const end = this.selectionEnd();
 
@@ -1877,8 +1887,8 @@ export class ResultsTableComponent {
     const docs = this.processedDocuments();
     const columns = this.visibleColumns();
 
-    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
-    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocKey(d) === start.docKey);
+    const endRowIdx = docs.findIndex(d => this.getDocKey(d) === end.docKey);
     const startColIdx = columns.indexOf(start.path);
     const endColIdx = columns.indexOf(end.path);
 
@@ -1887,16 +1897,16 @@ export class ResultsTableComponent {
     const minCol = Math.min(startColIdx, endColIdx);
     const maxCol = Math.max(startColIdx, endColIdx);
 
-    const cells: Array<{ docId: string; path: string }> = [];
+    const cells: Array<{ docKey: string; path: string }> = [];
     for (let r = minRow; r <= maxRow; r++) {
       for (let c = minCol; c <= maxCol; c++) {
-        cells.push({ docId: this.getDocId(docs[r]), path: columns[c] });
+        cells.push({ docKey: this.getDocKey(docs[r]), path: columns[c] });
       }
     }
     return cells;
   }
 
-  isCellInSelection(docId: string, path: string): boolean {
+  isCellInSelection(docKey: string, path: string): boolean {
     const start = this.selectionStart();
     const end = this.selectionEnd();
 
@@ -1905,11 +1915,11 @@ export class ResultsTableComponent {
     const docs = this.processedDocuments();
     const columns = this.visibleColumns();
 
-    const cellRowIdx = docs.findIndex(d => this.getDocId(d) === docId);
+    const cellRowIdx = docs.findIndex(d => this.getDocKey(d) === docKey);
     const cellColIdx = columns.indexOf(path);
 
-    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
-    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocKey(d) === start.docKey);
+    const endRowIdx = docs.findIndex(d => this.getDocKey(d) === end.docKey);
     const startColIdx = columns.indexOf(start.path);
     const endColIdx = columns.indexOf(end.path);
 
@@ -1935,8 +1945,8 @@ export class ResultsTableComponent {
 
     if (!start || !end) return;
 
-    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
-    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocKey(d) === start.docKey);
+    const endRowIdx = docs.findIndex(d => this.getDocKey(d) === end.docKey);
     const startColIdx = columns.indexOf(start.path);
     const endColIdx = columns.indexOf(end.path);
 
@@ -2036,12 +2046,15 @@ export class ResultsTableComponent {
         // Paste JSON into single focused cell
         const focused = this.focusedCell();
         if (focused && !this.isSystemField(focused.path)) {
-          try {
-            const jsonValue = JSON.parse(trimmedText);
-            this.queryStore.updateDocumentField(focused.docId, focused.path, jsonValue);
-          } catch {
-            // If JSON parse fails, paste as string
-            this.queryStore.updateDocumentField(focused.docId, focused.path, trimmedText);
+          const doc = this.findDocByKey(focused.docKey);
+          if (doc) {
+            try {
+              const jsonValue = JSON.parse(trimmedText);
+              this.queryStore.updateDocumentField(doc, focused.path, jsonValue);
+            } catch {
+              // If JSON parse fails, paste as string
+              this.queryStore.updateDocumentField(doc, focused.path, trimmedText);
+            }
           }
         }
         return;
@@ -2055,7 +2068,10 @@ export class ResultsTableComponent {
         const value = this.parseClipboardValue(rows[0][0]);
         for (const cell of cells) {
           if (!this.isSystemField(cell.path)) {
-            this.queryStore.updateDocumentField(cell.docId, cell.path, value);
+            const doc = this.findDocByKey(cell.docKey);
+            if (doc) {
+              this.queryStore.updateDocumentField(doc, cell.path, value);
+            }
           }
         }
       } else {
@@ -2064,16 +2080,16 @@ export class ResultsTableComponent {
         const start = this.selectionStart() || this.focusedCell();
         if (!start) return;
 
-        const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
+        const startRowIdx = docs.findIndex(d => this.getDocKey(d) === start.docKey);
         const startColIdx = columns.indexOf(start.path);
 
         for (let r = 0; r < rows.length && startRowIdx + r < docs.length; r++) {
           for (let c = 0; c < rows[r].length && startColIdx + c < columns.length; c++) {
-            const docId = this.getDocId(docs[startRowIdx + r]);
+            const doc = docs[startRowIdx + r];
             const path = columns[startColIdx + c];
             if (!this.isSystemField(path)) {
               const value = this.parseClipboardValue(rows[r][c]);
-              this.queryStore.updateDocumentField(docId, path, value);
+              this.queryStore.updateDocumentField(doc, path, value);
             }
           }
         }
@@ -2202,11 +2218,11 @@ export class ResultsTableComponent {
     });
   }
 
-  onCellMouseDown(docId: string, path: string, event: MouseEvent) {
+  onCellMouseDown(docKey: string, path: string, event: MouseEvent) {
     // Ignore right-click
     if (event.button !== 0) return;
 
-    const newCell = { docId, path };
+    const newCell = { docKey, path };
 
     if (event.shiftKey && this.focusedCell()) {
       // Shift+click extends selection from focused cell
@@ -2222,25 +2238,25 @@ export class ResultsTableComponent {
     }
   }
 
-  onCellMouseEnter(docId: string, path: string) {
+  onCellMouseEnter(docKey: string, path: string) {
     // Extend selection while dragging
     if (this.isDragging()) {
-      const newCell = { docId, path };
+      const newCell = { docKey, path };
       this.selectionEnd.set(newCell);
       this.focusedCell.set(newCell);
     }
   }
 
 
-  onCellClick(docId: string, path: string, event: MouseEvent) {
+  onCellClick(docKey: string, path: string, event: MouseEvent) {
     // Click is now handled by mousedown, but keep for double-click compatibility
   }
 
   // Track if we're dragging from row numbers
   isRowDragging = signal(false);
-  rowDragStartDocId = signal<string | null>(null);
+  rowDragStartDocKey = signal<string | null>(null);
 
-  onRowNumberMouseDown(docId: string, event: MouseEvent) {
+  onRowNumberMouseDown(docKey: string, event: MouseEvent) {
     // Ignore right-click
     if (event.button !== 0) return;
     event.preventDefault();
@@ -2255,30 +2271,30 @@ export class ResultsTableComponent {
     if (event.shiftKey && this.selectionStart()) {
       // Shift+click: extend selection to include all rows from start to clicked row
       const start = this.selectionStart()!;
-      const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
-      const clickedRowIdx = docs.findIndex(d => this.getDocId(d) === docId);
+      const startRowIdx = docs.findIndex(d => this.getDocKey(d) === start.docKey);
+      const clickedRowIdx = docs.findIndex(d => this.getDocKey(d) === docKey);
 
       const minRowIdx = Math.min(startRowIdx, clickedRowIdx);
       const maxRowIdx = Math.max(startRowIdx, clickedRowIdx);
 
       // Keep the original start row, extend to clicked row
-      this.selectionStart.set({ docId: this.getDocId(docs[minRowIdx]), path: firstCol });
-      this.selectionEnd.set({ docId: this.getDocId(docs[maxRowIdx]), path: lastCol });
-      this.focusedCell.set({ docId, path: firstCol });
+      this.selectionStart.set({ docKey: this.getDocKey(docs[minRowIdx]), path: firstCol });
+      this.selectionEnd.set({ docKey: this.getDocKey(docs[maxRowIdx]), path: lastCol });
+      this.focusedCell.set({ docKey, path: firstCol });
     } else {
       // Start row drag selection
       this.isRowDragging.set(true);
-      this.rowDragStartDocId.set(docId);
-      this.selectionStart.set({ docId, path: firstCol });
-      this.selectionEnd.set({ docId, path: lastCol });
-      this.focusedCell.set({ docId, path: firstCol });
+      this.rowDragStartDocKey.set(docKey);
+      this.selectionStart.set({ docKey, path: firstCol });
+      this.selectionEnd.set({ docKey, path: lastCol });
+      this.focusedCell.set({ docKey, path: firstCol });
     }
 
     // Focus the table wrapper so keyboard events work
     this.refocusTable();
   }
 
-  onRowNumberMouseEnter(docId: string) {
+  onRowNumberMouseEnter(docKey: string) {
     if (!this.isRowDragging()) return;
 
     const columns = this.visibleColumns();
@@ -2288,21 +2304,21 @@ export class ResultsTableComponent {
     const lastCol = columns[columns.length - 1];
     const docs = this.processedDocuments();
 
-    const startDocId = this.rowDragStartDocId();
-    if (!startDocId) return;
+    const startDocKey = this.rowDragStartDocKey();
+    if (!startDocKey) return;
 
-    const startRowIdx = docs.findIndex(d => this.getDocId(d) === startDocId);
-    const currentRowIdx = docs.findIndex(d => this.getDocId(d) === docId);
+    const startRowIdx = docs.findIndex(d => this.getDocKey(d) === startDocKey);
+    const currentRowIdx = docs.findIndex(d => this.getDocKey(d) === docKey);
 
     const minRowIdx = Math.min(startRowIdx, currentRowIdx);
     const maxRowIdx = Math.max(startRowIdx, currentRowIdx);
 
-    this.selectionStart.set({ docId: this.getDocId(docs[minRowIdx]), path: firstCol });
-    this.selectionEnd.set({ docId: this.getDocId(docs[maxRowIdx]), path: lastCol });
-    this.focusedCell.set({ docId, path: firstCol });
+    this.selectionStart.set({ docKey: this.getDocKey(docs[minRowIdx]), path: firstCol });
+    this.selectionEnd.set({ docKey: this.getDocKey(docs[maxRowIdx]), path: lastCol });
+    this.focusedCell.set({ docKey, path: firstCol });
   }
 
-  isRowSelected(docId: string): boolean {
+  isRowSelected(docKey: string): boolean {
     const start = this.selectionStart();
     const end = this.selectionEnd();
     if (!start || !end) return false;
@@ -2312,9 +2328,9 @@ export class ResultsTableComponent {
     if (columns.length === 0) return false;
 
     const docs = this.processedDocuments();
-    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
-    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
-    const rowIdx = docs.findIndex(d => this.getDocId(d) === docId);
+    const startRowIdx = docs.findIndex(d => this.getDocKey(d) === start.docKey);
+    const endRowIdx = docs.findIndex(d => this.getDocKey(d) === end.docKey);
+    const rowIdx = docs.findIndex(d => this.getDocKey(d) === docKey);
 
     const minRow = Math.min(startRowIdx, endRowIdx);
     const maxRow = Math.max(startRowIdx, endRowIdx);
@@ -2329,8 +2345,8 @@ export class ResultsTableComponent {
     if (!start || !end) return [];
 
     const docs = this.processedDocuments();
-    const startRowIdx = docs.findIndex(d => this.getDocId(d) === start.docId);
-    const endRowIdx = docs.findIndex(d => this.getDocId(d) === end.docId);
+    const startRowIdx = docs.findIndex(d => this.getDocKey(d) === start.docKey);
+    const endRowIdx = docs.findIndex(d => this.getDocKey(d) === end.docKey);
 
     const minRow = Math.min(startRowIdx, endRowIdx);
     const maxRow = Math.max(startRowIdx, endRowIdx);
@@ -2401,13 +2417,19 @@ export class ResultsTableComponent {
       if (cells.length === 0 && focused) {
         // Single focused cell
         if (!this.isSystemField(focused.path)) {
-          this.queryStore.updateDocumentField(focused.docId, focused.path, undefined);
+          const doc = this.findDocByKey(focused.docKey);
+          if (doc) {
+            this.queryStore.updateDocumentField(doc, focused.path, undefined);
+          }
         }
       } else {
         // Multiple cells selected
         for (const cell of cells) {
           if (!this.isSystemField(cell.path)) {
-            this.queryStore.updateDocumentField(cell.docId, cell.path, undefined);
+            const doc = this.findDocByKey(cell.docKey);
+            if (doc) {
+              this.queryStore.updateDocumentField(doc, cell.path, undefined);
+            }
           }
         }
       }
@@ -2429,9 +2451,9 @@ export class ResultsTableComponent {
     this.queryStore.markForDeletion([doc]);
   }
 
-  isCellFocused(docId: string, path: string): boolean {
+  isCellFocused(docKey: string, path: string): boolean {
     const focused = this.focusedCell();
-    return focused?.docId === docId && focused?.path === path;
+    return focused?.docKey === docKey && focused?.path === path;
   }
 
   isSystemField(path: string): boolean {
@@ -2464,7 +2486,7 @@ export class ResultsTableComponent {
     }
 
     // For simple types, use inline editing
-    this.editingCell = { docId: this.getDocId(doc), path };
+    this.editingCell = { docKey: this.getDocKey(doc), path };
     this.editingValue =
       value === null ? 'null' : value === undefined ? '' : String(value);
 
@@ -2555,7 +2577,7 @@ export class ResultsTableComponent {
         this.isEditingCancelled = false;
         return;
       }
-      if (this.editingCell?.docId === this.getDocId(doc) && this.editingCell?.path === column) {
+      if (this.editingCell?.docKey === this.getDocId(doc) && this.editingCell?.path === column) {
         this.finishEditing(doc, column);
       }
     }, 150);
@@ -2575,7 +2597,7 @@ export class ResultsTableComponent {
 
     dialogRef.afterClosed().subscribe((updatedValue) => {
       if (updatedValue !== undefined) {
-        this.queryStore.updateDocumentField(this.getDocId(doc), path, updatedValue);
+        this.queryStore.updateDocumentField(doc, path, updatedValue);
       }
     });
   }
@@ -2590,9 +2612,9 @@ export class ResultsTableComponent {
     if (selectedOption) {
       if (selectedOption.type === 'delete') {
         // Delete field - set to undefined which should remove it
-        this.queryStore.updateDocumentField(this.getDocId(doc), path, undefined);
+        this.queryStore.updateDocumentField(doc, path, undefined);
       } else {
-        this.queryStore.updateDocumentField(this.getDocId(doc), path, selectedOption.value);
+        this.queryStore.updateDocumentField(doc, path, selectedOption.value);
       }
     }
 
@@ -2649,12 +2671,12 @@ export class ResultsTableComponent {
   onSaveDocument(doc: CosmosDocument) {
     const cont = this.container();
     if (cont) {
-      this.queryStore.saveDocument(cont, this.getDocId(doc));
+      this.queryStore.saveDocument(cont, doc);
     }
   }
 
   onDiscardChanges(doc: CosmosDocument) {
-    this.queryStore.discardChanges(this.getDocId(doc));
+    this.queryStore.discardChanges(doc);
   }
 
   onSaveAll() {
@@ -2686,7 +2708,7 @@ export class ResultsTableComponent {
         // Apply changes from JSON editor (skip system fields)
         Object.keys(updatedDoc).forEach((key) => {
           if (!this.isSystemField(key)) {
-            this.queryStore.updateDocumentField(this.getDocId(doc), key, updatedDoc[key]);
+            this.queryStore.updateDocumentField(doc, key, updatedDoc[key]);
           }
         });
       }
@@ -2746,7 +2768,7 @@ export class ResultsTableComponent {
       if (confirmed) {
         const cont = this.container();
         if (cont) {
-          this.queryStore.deleteDocument(cont, docId);
+          this.queryStore.deleteDocument(cont, doc);
         }
       }
     });

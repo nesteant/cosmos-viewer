@@ -113,35 +113,63 @@ export function extractPartitionKeyValue(doc: CosmosDocument, partitionKeyPath?:
 export class DiffTracker {
   private dirtyDocuments = new Map<string, DirtyDocument>();
   private partitionKeyPath: string | null = null;
+  private partitionKeyPaths: string[] = []; // For composite partition keys
 
   /**
-   * Sets the partition key path for this tracker
+   * Sets the partition key path for this tracker (single or composite)
+   * @param path Single path like "/category" or array for composite ["/tenantId", "/userId"]
    */
-  setPartitionKeyPath(path: string | null): void {
-    this.partitionKeyPath = path;
+  setPartitionKeyPath(path: string | string[] | null): void {
+    if (path === null) {
+      this.partitionKeyPath = null;
+      this.partitionKeyPaths = [];
+    } else if (Array.isArray(path)) {
+      this.partitionKeyPaths = path;
+      this.partitionKeyPath = path[0] ?? null; // Keep first for backwards compat
+    } else {
+      this.partitionKeyPath = path;
+      this.partitionKeyPaths = [path];
+    }
   }
 
   /**
    * Gets the composite key for a document
    */
-  private getDocumentKey(doc: CosmosDocument): string {
-    const pkValue = extractPartitionKeyValue(doc, this.partitionKeyPath ?? undefined);
+  getDocumentKey(doc: CosmosDocument): string {
+    const pkValue = this.extractFullPartitionKey(doc);
     return createDocumentKey(getDocId(doc), pkValue);
   }
 
   /**
-   * Gets the composite key for a document by id (looks up from tracked docs)
+   * Extracts full partition key value (handles composite keys)
    */
-  private getKeyById(documentId: string): string | null {
-    // First try direct lookup (for backwards compatibility and simple cases)
-    if (this.dirtyDocuments.has(documentId)) {
-      return documentId;
+  private extractFullPartitionKey(doc: CosmosDocument): any {
+    if (this.partitionKeyPaths.length === 0) {
+      return undefined;
     }
-    // Search for document with matching id in tracked documents
-    for (const [key, tracked] of this.dirtyDocuments) {
-      if (getDocId(tracked.modified) === documentId) {
-        return key;
+    if (this.partitionKeyPaths.length === 1) {
+      return extractPartitionKeyValue(doc, this.partitionKeyPaths[0]);
+    }
+    // Composite partition key - return array of values
+    return this.partitionKeyPaths.map(p => extractPartitionKeyValue(doc, p));
+  }
+
+  /**
+   * Resolves a document identifier to its tracking key
+   * @param docOrKey Either a document object or a pre-computed document key string
+   */
+  private resolveKey(docOrKey: CosmosDocument | string): string | null {
+    if (typeof docOrKey === 'string') {
+      // It's already a key - check if it exists
+      if (this.dirtyDocuments.has(docOrKey)) {
+        return docOrKey;
       }
+      return null;
+    }
+    // It's a document - compute the key
+    const key = this.getDocumentKey(docOrKey);
+    if (this.dirtyDocuments.has(key)) {
+      return key;
     }
     return null;
   }
@@ -163,9 +191,10 @@ export class DiffTracker {
 
   /**
    * Updates a field in a tracked document
+   * @param doc The document object (used to compute unique key with partition key)
    */
-  updateField(documentId: string, path: string, newValue: any): void {
-    const key = this.getKeyById(documentId);
+  updateField(doc: CosmosDocument, path: string, newValue: any): void {
+    const key = this.resolveKey(doc);
     if (!key) return;
     const tracked = this.dirtyDocuments.get(key);
     if (!tracked) return;
@@ -177,6 +206,7 @@ export class DiffTracker {
     setNestedValueMutable(tracked.modified, pathArray, newValue);
 
     // Track the change
+    const documentId = getDocId(doc);
     if (deepEqual(originalValue, newValue)) {
       tracked.changes.delete(path);
     } else {
@@ -198,8 +228,8 @@ export class DiffTracker {
   /**
    * Gets all changes for a document
    */
-  getDocumentChanges(documentId: string): DocumentChange[] {
-    const key = this.getKeyById(documentId);
+  getDocumentChanges(doc: CosmosDocument): DocumentChange[] {
+    const key = this.resolveKey(doc);
     if (!key) return [];
     const tracked = this.dirtyDocuments.get(key);
     if (!tracked) return [];
@@ -209,8 +239,8 @@ export class DiffTracker {
   /**
    * Checks if a specific field is dirty
    */
-  isFieldDirty(documentId: string, path: string): boolean {
-    const key = this.getKeyById(documentId);
+  isFieldDirty(doc: CosmosDocument, path: string): boolean {
+    const key = this.resolveKey(doc);
     if (!key) return false;
     const tracked = this.dirtyDocuments.get(key);
     return tracked?.changes.has(path) ?? false;
@@ -219,8 +249,8 @@ export class DiffTracker {
   /**
    * Checks if a document has any changes
    */
-  isDocumentDirty(documentId: string): boolean {
-    const key = this.getKeyById(documentId);
+  isDocumentDirty(doc: CosmosDocument): boolean {
+    const key = this.resolveKey(doc);
     if (!key) return false;
     const tracked = this.dirtyDocuments.get(key);
     return (tracked?.changes.size ?? 0) > 0;
@@ -238,17 +268,24 @@ export class DiffTracker {
   /**
    * Gets the modified version of a document
    */
-  getModifiedDocument(documentId: string): CosmosDocument | undefined {
-    const key = this.getKeyById(documentId);
+  getModifiedDocument(doc: CosmosDocument): CosmosDocument | undefined {
+    const key = this.resolveKey(doc);
     if (!key) return undefined;
     return this.dirtyDocuments.get(key)?.modified;
   }
 
   /**
+   * Gets the modified version by document key
+   */
+  getModifiedDocumentByKey(documentKey: string): CosmosDocument | undefined {
+    return this.dirtyDocuments.get(documentKey)?.modified;
+  }
+
+  /**
    * Discards changes and reverts to original
    */
-  discardChanges(documentId: string): void {
-    const key = this.getKeyById(documentId);
+  discardChanges(doc: CosmosDocument): void {
+    const key = this.resolveKey(doc);
     if (!key) return;
     const tracked = this.dirtyDocuments.get(key);
     if (tracked) {
@@ -273,8 +310,8 @@ export class DiffTracker {
   /**
    * Commits changes (updates original to match modified)
    */
-  commitChanges(documentId: string, updatedDoc?: CosmosDocument): void {
-    const key = this.getKeyById(documentId);
+  commitChanges(doc: CosmosDocument, updatedDoc?: CosmosDocument): void {
+    const key = this.resolveKey(doc);
     if (!key) return;
     const tracked = this.dirtyDocuments.get(key);
     if (tracked) {
@@ -288,8 +325,8 @@ export class DiffTracker {
   /**
    * Removes a document from tracking
    */
-  untrackDocument(documentId: string): void {
-    const key = this.getKeyById(documentId);
+  untrackDocument(doc: CosmosDocument): void {
+    const key = this.resolveKey(doc);
     if (key) {
       this.dirtyDocuments.delete(key);
     }

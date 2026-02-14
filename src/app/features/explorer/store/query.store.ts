@@ -343,8 +343,12 @@ export const QueryStore = signalStore(
         const query = tabState?.query ?? 'SELECT * FROM c';
 
         // Store partition key path and set it on the tracker
+        // partitionKeyPath can be comma-separated for composite keys (e.g., "/tenant,/user")
         const partitionKeyPath = container.partitionKeyPath;
-        diffTracker.setPartitionKeyPath(partitionKeyPath);
+        const partitionKeyPaths = partitionKeyPath
+          ? partitionKeyPath.split(',').map(p => p.trim())
+          : [];
+        diffTracker.setPartitionKeyPath(partitionKeyPaths.length > 0 ? partitionKeyPaths : null);
 
         updateTabState(tabId, {
           isExecuting: true,
@@ -459,41 +463,42 @@ export const QueryStore = signalStore(
         return { documents: result.documents };
       },
 
-      updateDocumentField(documentId: string, path: string, value: any) {
+      updateDocumentField(doc: CosmosDocument, path: string, value: any) {
         const tabId = store.activeTabId();
         if (!tabId) return;
 
         const diffTracker = getDiffTracker(tabId);
         const tabState = store.tabStates()[tabId];
+        const documentKey = diffTracker.getDocumentKey(doc);
 
-        diffTracker.updateField(documentId, path, value);
+        diffTracker.updateField(doc, path, value);
 
-        const documents = (tabState?.documents ?? []).map((doc) => {
-          if (getDocId(doc) === documentId) {
-            return diffTracker.getModifiedDocument(documentId) ?? doc;
+        const documents = (tabState?.documents ?? []).map((d) => {
+          if (diffTracker.getDocumentKey(d) === documentKey) {
+            return diffTracker.getModifiedDocument(d) ?? d;
           }
-          return doc;
+          return d;
         });
 
         updateTabState(tabId, { documents });
       },
 
-      isFieldDirty(documentId: string, path: string): boolean {
+      isFieldDirty(doc: CosmosDocument, path: string): boolean {
         const tabId = store.activeTabId();
         if (!tabId) return false;
-        return getDiffTracker(tabId).isFieldDirty(documentId, path);
+        return getDiffTracker(tabId).isFieldDirty(doc, path);
       },
 
-      isDocumentDirty(documentId: string): boolean {
+      isDocumentDirty(doc: CosmosDocument): boolean {
         const tabId = store.activeTabId();
         if (!tabId) return false;
-        return getDiffTracker(tabId).isDocumentDirty(documentId);
+        return getDiffTracker(tabId).isDocumentDirty(doc);
       },
 
-      getDocumentChanges(documentId: string): DocumentChange[] {
+      getDocumentChanges(doc: CosmosDocument): DocumentChange[] {
         const tabId = store.activeTabId();
         if (!tabId) return [];
-        return getDiffTracker(tabId).getDocumentChanges(documentId);
+        return getDiffTracker(tabId).getDocumentChanges(doc);
       },
 
       getDirtyDocumentCount(): number {
@@ -510,21 +515,28 @@ export const QueryStore = signalStore(
         return getDiffTracker(tabId).getAllDirtyDocuments();
       },
 
-      discardChanges(documentId: string) {
+      getDocumentKey(doc: CosmosDocument): string {
+        const tabId = store.activeTabId();
+        if (!tabId) return getDocId(doc);
+        return getDiffTracker(tabId).getDocumentKey(doc);
+      },
+
+      discardChanges(doc: CosmosDocument) {
         const tabId = store.activeTabId();
         if (!tabId) return;
 
         const diffTracker = getDiffTracker(tabId);
         const tabState = store.tabStates()[tabId];
+        const documentKey = diffTracker.getDocumentKey(doc);
 
-        diffTracker.discardChanges(documentId);
-        const original = diffTracker.getModifiedDocument(documentId);
+        diffTracker.discardChanges(doc);
+        const original = diffTracker.getModifiedDocument(doc);
         if (original) {
-          const documents = (tabState?.documents ?? []).map((doc) => {
-            if (getDocId(doc) === documentId) {
+          const documents = (tabState?.documents ?? []).map((d) => {
+            if (diffTracker.getDocumentKey(d) === documentKey) {
               return original;
             }
-            return doc;
+            return d;
           });
           updateTabState(tabId, { documents });
         }
@@ -539,7 +551,7 @@ export const QueryStore = signalStore(
 
         diffTracker.discardAllChanges();
         const documents = (tabState?.documents ?? []).map((doc) => {
-          return diffTracker.getModifiedDocument(getDocId(doc)) ?? doc;
+          return diffTracker.getModifiedDocument(doc) ?? doc;
         });
         // Also clear pending deletes
         updateTabState(tabId, { documents, pendingDeletes: new Set() });
@@ -601,7 +613,7 @@ export const QueryStore = signalStore(
         return Array.from(store.tabStates()[tabId]?.pendingDeletes ?? []);
       },
 
-      async saveDocument(container: ContainerInfo, documentId: string) {
+      async saveDocument(container: ContainerInfo, doc: CosmosDocument) {
         const tabId = store.activeTabId();
         if (!tabId) return;
 
@@ -609,7 +621,8 @@ export const QueryStore = signalStore(
         if (!connectionId) return;
 
         const diffTracker = getDiffTracker(tabId);
-        const modifiedDoc = diffTracker.getModifiedDocument(documentId);
+        const documentKey = diffTracker.getDocumentKey(doc);
+        const modifiedDoc = diffTracker.getModifiedDocument(doc);
         if (!modifiedDoc) return;
 
         try {
@@ -626,14 +639,14 @@ export const QueryStore = signalStore(
             partitionKey,
           });
 
-          diffTracker.commitChanges(documentId, updated);
+          diffTracker.commitChanges(doc, updated);
 
           const tabState = store.tabStates()[tabId];
-          const documents = (tabState?.documents ?? []).map((doc) => {
-            if (getDocId(doc) === documentId) {
+          const documents = (tabState?.documents ?? []).map((d) => {
+            if (diffTracker.getDocumentKey(d) === documentKey) {
               return updated;
             }
-            return doc;
+            return d;
           });
 
           updateTabState(tabId, { documents });
@@ -667,7 +680,7 @@ export const QueryStore = signalStore(
           const key = createDocumentKey(getDocId(dirty.modified), pkValue);
           if (pendingDeleteKeys.has(key)) continue;
           try {
-            await this.saveDocument(container, getDocId(dirty.modified));
+            await this.saveDocument(container, dirty.modified);
             savedCount++;
           } catch {
             errorCount++;
@@ -681,7 +694,7 @@ export const QueryStore = signalStore(
           const key = createDocumentKey(getDocId(doc), pkValue);
           if (pendingDeleteKeys.has(key)) {
             try {
-              await this.deleteDocument(container, getDocId(doc));
+              await this.deleteDocument(container, doc);
               deletedCount++;
             } catch {
               errorCount++;
@@ -706,7 +719,7 @@ export const QueryStore = signalStore(
         }
       },
 
-      async deleteDocument(container: ContainerInfo, documentId: string) {
+      async deleteDocument(container: ContainerInfo, doc: CosmosDocument) {
         const tabId = store.activeTabId();
         if (!tabId) return;
 
@@ -715,8 +728,8 @@ export const QueryStore = signalStore(
 
         const diffTracker = getDiffTracker(tabId);
         const tabState = store.tabStates()[tabId];
-        const doc = tabState?.documents?.find((d) => getDocId(d) === documentId);
-        if (!doc) return;
+        const documentKey = diffTracker.getDocumentKey(doc);
+        const documentId = getDocId(doc);
 
         try {
           const partitionKey = getPartitionKeyValue(
@@ -732,10 +745,10 @@ export const QueryStore = signalStore(
             partitionKey,
           });
 
-          diffTracker.untrackDocument(documentId);
+          diffTracker.untrackDocument(doc);
 
           const documents = (tabState?.documents ?? []).filter(
-            (d) => getDocId(d) !== documentId
+            (d) => diffTracker.getDocumentKey(d) !== documentKey
           );
           const columns = detectColumns(documents, container.partitionKeyPath);
 
