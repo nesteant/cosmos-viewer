@@ -298,7 +298,7 @@ import { ImportExportService } from '../import-export/import-export.service';
                   (mouseenter)="onCellMouseEnter(getDocKey(doc), column)"
                   (dblclick)="startEditing(doc, column)"
                 >
-                  @if (editingCell?.docKey === getDocId(doc) && editingCell?.path === column) {
+                  @if (editingCell?.docKey === getDocKey(doc) && editingCell?.path === column) {
                     <div class="inline-editor" (mousedown)="$event.stopPropagation()">
                       <input
                         #editInput
@@ -2577,7 +2577,7 @@ export class ResultsTableComponent {
         this.isEditingCancelled = false;
         return;
       }
-      if (this.editingCell?.docKey === this.getDocId(doc) && this.editingCell?.path === column) {
+      if (this.editingCell?.docKey === this.getDocKey(doc) && this.editingCell?.path === column) {
         this.finishEditing(doc, column);
       }
     }, 150);
