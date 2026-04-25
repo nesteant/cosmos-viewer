@@ -91,6 +91,12 @@ export interface DatabaseProvider {
   updateDocument(params: DocumentUpdateParams): Promise<DocumentResult>;
 
   /**
+   * Create or replace a document/row (upsert)
+   * @param params Document creation parameters
+   */
+  upsertDocument(params: DocumentCreateParams): Promise<DocumentResult>;
+
+  /**
    * Delete a document/row
    * @param params Document deletion parameters
    */

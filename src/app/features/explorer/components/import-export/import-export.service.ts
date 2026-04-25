@@ -50,15 +50,24 @@ export class ImportExportService {
       const data = JSON.parse(content);
       const documents = Array.isArray(data) ? data : [data];
 
-      // Validate documents have id
-      const valid = documents.filter((doc) => doc && typeof doc.id === 'string');
+      // Validate documents have id (CosmosSQL 'id' or MongoDB '_id')
+      const valid = documents.filter((doc) => doc && (typeof doc.id === 'string' || doc._id !== undefined));
       if (valid.length < documents.length) {
         this.notificationService.warn(
           `${documents.length - valid.length} documents skipped (missing id)`
         );
       }
 
-      return valid;
+      // Strip Cosmos system properties that can cause conflicts on upsert
+      return valid.map((doc) => {
+        const cleaned = { ...doc };
+        delete cleaned._rid;
+        delete cleaned._self;
+        delete cleaned._etag;
+        delete cleaned._attachments;
+        delete cleaned._ts;
+        return cleaned;
+      });
     } catch (e) {
       this.notificationService.error('Invalid JSON file');
       throw e;

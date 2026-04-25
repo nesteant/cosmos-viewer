@@ -117,6 +117,16 @@ export class ElectronService {
     return result.document as CosmosDocument;
   }
 
+  async upsertDocument(params: {
+    connectionId: string;
+    databaseId: string;
+    containerId: string;
+    document: CosmosDocument;
+  }): Promise<CosmosDocument> {
+    const result = await this.api.db.upsertDocument(params);
+    return result.document as CosmosDocument;
+  }
+
   async updateDocument(params: {
     connectionId: string;
     databaseId: string;

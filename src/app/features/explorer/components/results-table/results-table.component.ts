@@ -1,6 +1,10 @@
-import { Component, inject, input, computed, ElementRef, ViewChild, signal, HostListener, effect } from '@angular/core';
+import { Component, inject, input, computed, ElementRef, ViewChild, signal, HostListener, effect, DestroyRef, ChangeDetectionStrategy, untracked } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject } from 'rxjs';
+import { debounceTime } from 'rxjs/operators';
 import { FormsModule } from '@angular/forms';
-import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
+import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
+import { ScrollingModule, CdkVirtualScrollViewport } from '@angular/cdk/scrolling';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -8,10 +12,9 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ContainerInfo, CosmosDocument, ColumnLayout, SortDirection, createContainerKey } from '@core/models';
-import { TablePreferencesService } from '@core/services';
+import { NotificationService, TablePreferencesService } from '@core/services';
 import { detectApplicableTypes, getSpecialOptions, isValidGuid, isValidIsoDate, TypeOption, FieldType } from '@core/utils/json-flattener';
 import { getValueAtPath, stringToPath } from '@core/utils/path-utils';
 import { ConfirmDialogComponent, CellFormatterComponent } from '@shared/components';
@@ -28,7 +31,7 @@ import { ImportExportService } from '../import-export/import-export.service';
   imports: [
     FormsModule,
     DragDropModule,
-    MatTableModule,
+    ScrollingModule,
     MatButtonModule,
     MatCheckboxModule,
     MatDividerModule,
@@ -39,6 +42,7 @@ import { ImportExportService } from '../import-export/import-export.service';
     MatDialogModule,
     CellFormatterComponent,
   ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="results-container">
       <div class="results-toolbar">
@@ -104,7 +108,8 @@ import { ImportExportService } from '../import-export/import-export.service';
             <button
               mat-stroked-button
               (click)="onLoadMore()"
-              [disabled]="queryStore.isLoadingMore()"
+              [disabled]="queryStore.isLoadingMore() || atLoadMoreLimit()"
+              [matTooltip]="atLoadMoreLimit() ? 'Row safety limit reached. Refine your query.' : ''"
             >
               @if (queryStore.isLoadingMore()) {
                 <mat-spinner diameter="18"></mat-spinner>
@@ -215,36 +220,37 @@ import { ImportExportService } from '../import-export/import-export.service';
       />
 
       @if (queryStore.hasDocuments()) {
-        <div class="table-wrapper" tabindex="0" #tableWrapper (scroll)="closeContextMenu()" [class.selecting]="isDragging()">
-          <table mat-table [dataSource]="processedDocuments()">
-            <!-- Row number column -->
-            <ng-container matColumnDef="_rowNum">
-              <th mat-header-cell *matHeaderCellDef class="row-num-cell">#</th>
-              <td
-                mat-cell
-                *matCellDef="let doc; let i = index"
-                class="row-num-cell"
-                [class.row-selected]="isRowSelected(getDocKey(doc))"
-                (mousedown)="onRowNumberMouseDown(getDocKey(doc), $event)"
-                (mouseenter)="onRowNumberMouseEnter(getDocKey(doc))"
-              >
-                {{ i + 1 }}
-              </td>
-            </ng-container>
-
-            @for (column of visibleColumns(); track column) {
-              <ng-container [matColumnDef]="column">
-                <th
-                  mat-header-cell
-                  *matHeaderCellDef
+        <div
+          class="dg-table"
+          tabindex="0"
+          #tableWrapper
+          [class.selecting]="isDragging()"
+        >
+          <!-- Single horizontal-scroll container shared by header + body so the
+               two stay aligned when the user scrolls horizontally. -->
+          <div class="dg-hscroll">
+            <div class="dg-content" [style.minWidth.px]="totalGridWidth()">
+          <!-- Sticky header row -->
+          <div class="dg-header">
+            <div class="dg-row dg-row-header" [style.gridTemplateColumns]="gridTemplateColumns()">
+              <div
+                class="dg-cell dg-row-num dg-row-num-header"
+                role="button"
+                tabindex="0"
+                matTooltip="Select all rows and columns"
+                matTooltipPosition="right"
+                [class.row-selected]="isAllSelected()"
+                (click)="selectAll()"
+              >#</div>
+              @for (column of visibleColumns(); track column; let ci = $index) {
+                <div
+                  class="dg-cell dg-header-cell"
                   [class.id-column]="isIdColumn(column)"
                   [class.partition-key-column]="isPartitionKeyField(column) && !isIdColumn(column)"
                   [class.system-column]="isSystemField(column)"
                   [class.pinned-column]="isColumnPinned(column)"
                   [class.sortable]="true"
-                  [style.width.px]="columnWidths()[column]"
-                  [style.min-width.px]="columnWidths()[column]"
-                  [style.max-width.px]="columnWidths()[column]"
+                  [style.left.px]="isColumnPinned(column) ? pinnedOffsets()[column] : null"
                   (click)="onHeaderClick(column, $event)"
                 >
                   <div class="header-content">
@@ -276,29 +282,56 @@ import { ImportExportService } from '../import-export/import-export.service';
                         type="text"
                         placeholder="Filter..."
                         [value]="getColumnFilter(column)"
-                        (input)="onColumnFilterChange(column, $any($event.target).value)"
+                        (input)="onColumnFilterChangeDebounced(column, $any($event.target).value)"
                       />
                     </div>
                   }
-                </th>
-                <td
-                  mat-cell
-                  *matCellDef="let doc"
-                  [class.dirty]="queryStore.isFieldDirty(doc, column)"
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- Virtualized body -->
+          <cdk-virtual-scroll-viewport
+            #viewport
+            class="dg-body"
+            [itemSize]="ROW_HEIGHT"
+            [minBufferPx]="ROW_HEIGHT * 8"
+            [maxBufferPx]="ROW_HEIGHT * 16"
+            (scroll)="onBodyScroll()"
+          >
+            <div
+              *cdkVirtualFor="let doc of processedDocuments(); trackBy: trackByDocKey; let i = index"
+              class="dg-row"
+              [style.gridTemplateColumns]="gridTemplateColumns()"
+              [class.dirty-row]="dirtyDocSet().has(getDocKey(doc))"
+              [class.pending-delete-row]="pendingDeleteSet().has(getDocKey(doc))"
+              (contextmenu)="onRowContextMenu($event, doc)"
+            >
+              <div
+                class="dg-cell dg-row-num"
+                [class.row-selected]="isRowInSelection(i)"
+                (mousedown)="onRowNumberMouseDown(getDocKey(doc), $event)"
+                (mouseenter)="onRowNumberMouseEnter(getDocKey(doc))"
+              >{{ i + 1 }}</div>
+
+              @for (column of visibleColumns(); track column; let ci = $index) {
+                <div
+                  class="dg-cell"
+                  [class.dirty]="dirtyCellSet().has(getDocKey(doc) + ':' + column)"
                   [class.editable]="!isSystemField(column)"
-                  [class.cell-focused]="isCellFocused(getDocKey(doc), column)"
-                  [class.cell-selected]="isCellInSelection(getDocKey(doc), column)"
+                  [class.cell-focused]="isFocusedRow(i) && focusedColIndex() === ci"
+                  [class.cell-selected]="isCellInBox(i, ci)"
                   [class.id-column]="isIdColumn(column)"
                   [class.partition-key-column]="isPartitionKeyField(column) && !isIdColumn(column)"
                   [class.system-column]="isSystemField(column)"
-                  [style.width.px]="columnWidths()[column]"
-                  [style.min-width.px]="columnWidths()[column]"
-                  [style.max-width.px]="columnWidths()[column]"
+                  [class.pinned-column]="isColumnPinned(column)"
+                  [style.left.px]="isColumnPinned(column) ? pinnedOffsets()[column] : null"
                   (mousedown)="onCellMouseDown(getDocKey(doc), column, $event)"
                   (mouseenter)="onCellMouseEnter(getDocKey(doc), column)"
                   (dblclick)="startEditing(doc, column)"
                 >
-                  @if (editingCell?.docKey === getDocKey(doc) && editingCell?.path === column) {
+                  @if (isEditingCell(doc, column)) {
                     <div class="inline-editor" (mousedown)="$event.stopPropagation()">
                       <input
                         #editInput
@@ -352,19 +385,30 @@ import { ImportExportService } from '../import-export/import-export.service';
                       />
                     </span>
                   }
-                </td>
-              </ng-container>
-            }
+                </div>
+              }
+            </div>
+          </cdk-virtual-scroll-viewport>
+            </div>
+          </div>
 
-            <tr mat-header-row *matHeaderRowDef="allColumns(); sticky: true"></tr>
-            <tr
-              mat-row
-              *matRowDef="let row; columns: allColumns()"
-              [class.dirty-row]="queryStore.isDocumentDirty(row)"
-              [class.pending-delete-row]="isMarkedForDeletion(row)"
-              (contextmenu)="onRowContextMenu($event, row)"
-            ></tr>
-          </table>
+          <!-- Row count + warnings footer -->
+          <div class="dg-footer">
+            <span class="dg-rowcount">
+              {{ processedDocuments().length }} row{{ processedDocuments().length === 1 ? '' : 's' }}
+              @if (processedDocuments().length !== queryStore.documents().length) {
+                <span class="dg-rowcount-extra">
+                  ({{ queryStore.documents().length }} loaded)
+                </span>
+              }
+            </span>
+            @if (showLoadMoreWarning()) {
+              <span class="dg-warn">
+                <mat-icon>warning</mat-icon>
+                Large result set ({{ queryStore.documents().length }} rows). Filter or refine the query for best performance.
+              </span>
+            }
+          </div>
         </div>
 
         <!-- Context Menu -->
@@ -491,18 +535,89 @@ import { ImportExportService } from '../import-export/import-export.service';
         gap: 4px;
       }
 
-      .table-wrapper {
+      /* === Virtualized div-grid table === */
+      .dg-table {
         flex: 1 1 0;
-        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-height: 0;
+        outline: none;
       }
 
-      table {
-        width: max-content;
-        min-width: 100%;
-        table-layout: fixed;
+      .dg-table:focus {
+        outline: none;
       }
 
-      th.mat-mdc-header-cell {
+      .dg-table.selecting {
+        user-select: none;
+        cursor: cell;
+      }
+
+      /* Outer horizontal scroll. Owns horizontal overflow so the header and
+         the virtual body always scroll together. */
+      .dg-hscroll {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Inner full-width content. min-width is bound to totalGridWidth so the
+         horizontal scrollbar reflects the actual table width. */
+      .dg-content {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 0;
+        min-height: 0;
+      }
+
+      .dg-header {
+        flex: 0 0 auto;
+        background: #1a1a1a;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+
+      .dg-row {
+        display: grid;
+        align-items: stretch;
+        min-height: 32px;
+        width: 100%;
+      }
+
+      .dg-row-header {
+        position: relative;
+      }
+
+      .dg-cell {
+        position: relative;
+        box-sizing: border-box;
+        padding: 0 6px;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border-right: 1px solid rgba(255, 255, 255, 0.04);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        display: flex;
+        align-items: center;
+      }
+
+      .dg-cell .cell-value {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: inline-block;
+        min-width: 0;
+      }
+
+      .dg-header-cell {
         background: #252525;
         font-size: 12px;
         font-weight: 600;
@@ -511,6 +626,7 @@ import { ImportExportService } from '../import-export/import-export.service';
         white-space: nowrap;
         position: relative;
         overflow: hidden;
+        cursor: default;
       }
 
       .header-content {
@@ -518,12 +634,14 @@ import { ImportExportService } from '../import-export/import-export.service';
         align-items: center;
         height: 100%;
         padding: 0 6px;
+        min-width: 0;
       }
 
       .header-label {
         flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
+        min-width: 0;
       }
 
       .resize-handle {
@@ -547,20 +665,8 @@ import { ImportExportService } from '../import-export/import-export.service';
         background: #bb86fc;
       }
 
-      td.mat-mdc-cell {
-        padding: 0 6px;
-        font-size: 12px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        position: relative;
-      }
-
-      .row-num-cell {
-        width: 45px !important;
-        min-width: 45px !important;
-        max-width: 45px !important;
+      .dg-row-num {
+        width: 45px;
         text-align: center;
         color: rgba(255, 255, 255, 0.4);
         font-size: 11px;
@@ -570,56 +676,72 @@ import { ImportExportService } from '../import-export/import-export.service';
         left: 0;
         z-index: 1;
         cursor: pointer;
+        justify-content: center;
+        padding: 0 4px;
       }
 
-      td.row-num-cell:hover {
+      .dg-row-num-header {
+        background: #1a1a1a;
+        z-index: 3;
+        cursor: pointer;
+      }
+
+      .dg-row-num-header:hover {
+        background: #232323;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .dg-row-num-header.row-selected {
+        background: rgba(66, 165, 245, 0.35);
+        color: white;
+      }
+
+      .dg-row-num-header:focus {
+        outline: none;
+      }
+
+      .dg-row-num-header:focus-visible {
+        outline: 2px solid rgba(187, 134, 252, 0.6);
+        outline-offset: -2px;
+      }
+
+      .dg-row-num:hover:not(.dg-row-num-header) {
         background: rgba(66, 165, 245, 0.15);
         color: rgba(255, 255, 255, 0.7);
       }
 
-      td.row-num-cell.row-selected {
+      .dg-row-num.row-selected {
         background: rgba(66, 165, 245, 0.3);
         color: white;
         font-weight: 600;
       }
 
-      th.row-num-cell {
-        background: #1a1a1a;
-        z-index: 3;
-      }
-
-      td.mat-mdc-cell:has(.inline-editor),
-      td.mat-mdc-cell:has(.expanded-content) {
+      .dg-cell:has(.inline-editor),
+      .dg-cell:has(.expanded-content) {
         overflow: visible;
       }
 
-      td.mat-mdc-cell .cell-value {
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      td.dirty {
+      .dg-cell.dirty {
         background: rgba(255, 183, 77, 0.15);
       }
 
-      td.editable:hover {
+      .dg-cell.editable:hover {
         background: rgba(255, 255, 255, 0.08);
         cursor: cell;
       }
 
-      td.mat-mdc-cell.cell-focused {
+      .dg-cell.cell-focused {
         outline: 2px solid #bb86fc;
         outline-offset: -2px;
         background: rgba(187, 134, 252, 0.15) !important;
+        z-index: 4;
       }
 
-      td.mat-mdc-cell.cell-selected {
+      .dg-cell.cell-selected {
         background: rgba(66, 165, 245, 0.3) !important;
-        position: relative;
       }
 
-      td.mat-mdc-cell.cell-selected::after {
+      .dg-cell.cell-selected::after {
         content: '';
         position: absolute;
         inset: 0;
@@ -627,51 +749,40 @@ import { ImportExportService } from '../import-export/import-export.service';
         pointer-events: none;
       }
 
-      td.mat-mdc-cell.cell-selected.cell-focused {
+      .dg-cell.cell-selected.cell-focused {
         background: rgba(66, 165, 245, 0.35) !important;
         outline: 2px solid #bb86fc;
-        outline-offset: -2px;
       }
 
-      td.mat-mdc-cell.cell-selected.cell-focused::after {
+      .dg-cell.cell-selected.cell-focused::after {
         border: none;
       }
 
-      .table-wrapper:focus {
-        outline: none;
+      .dg-row:hover .dg-cell:not(.cell-selected):not(.cell-focused):not(.dirty) {
+        background: rgba(255, 255, 255, 0.025);
       }
 
-      .table-wrapper.selecting {
-        user-select: none;
-        cursor: cell;
-      }
-
-      .table-wrapper.selecting td {
-        cursor: cell;
-      }
-
-      tr.dirty-row {
+      .dg-row.dirty-row {
         background: rgba(255, 183, 77, 0.05);
       }
 
-      tr.pending-delete-row {
+      .dg-row.pending-delete-row {
         background: rgba(244, 67, 54, 0.15) !important;
-        opacity: 0.7;
+        opacity: 0.75;
       }
 
-      tr.pending-delete-row td {
+      .dg-row.pending-delete-row .dg-cell {
         color: rgba(255, 255, 255, 0.5) !important;
         text-decoration: line-through !important;
-        background: rgba(244, 67, 54, 0.15) !important;
       }
 
-      tr.pending-delete-row td .cell-value,
-      tr.pending-delete-row td app-cell-formatter {
+      .dg-row.pending-delete-row .cell-value,
+      .dg-row.pending-delete-row app-cell-formatter {
         text-decoration: line-through !important;
       }
 
-      tr.pending-delete-row:hover {
-        opacity: 0.9;
+      .dg-row.pending-delete-row:hover {
+        opacity: 0.95;
       }
 
       /* Key column highlighting */
@@ -679,7 +790,7 @@ import { ImportExportService } from '../import-export/import-export.service';
         background: rgba(255, 193, 7, 0.08);
       }
 
-      th.id-column {
+      .dg-header-cell.id-column {
         background: rgba(255, 193, 7, 0.15);
       }
 
@@ -687,7 +798,7 @@ import { ImportExportService } from '../import-export/import-export.service';
         background: rgba(156, 39, 176, 0.08);
       }
 
-      th.partition-key-column {
+      .dg-header-cell.partition-key-column {
         background: rgba(156, 39, 176, 0.15);
       }
 
@@ -696,7 +807,7 @@ import { ImportExportService } from '../import-export/import-export.service';
         color: rgba(255, 255, 255, 0.5);
       }
 
-      th.system-column {
+      .dg-header-cell.system-column {
         background: rgba(96, 125, 139, 0.15);
       }
 
@@ -1153,18 +1264,63 @@ import { ImportExportService } from '../import-export/import-export.service';
         transform: rotate(45deg);
       }
 
-      /* Pinned columns */
-      th.pinned-column,
-      td.pinned-column {
+      /* Pinned columns (left offset is set inline from pinnedOffsets) */
+      .dg-cell.pinned-column {
         position: sticky;
-        left: 45px;
         z-index: 2;
-        background: #252525;
+        background: #1f1f1f;
         border-right: 2px solid rgba(187, 134, 252, 0.3);
       }
 
-      th.pinned-column {
+      .dg-header-cell.pinned-column {
         z-index: 4;
+        background: #2a2a2a;
+      }
+
+      /* Virtualized body — owns vertical scroll only (horizontal handled by
+         .dg-hscroll). The viewport's content-wrapper is left as-is so cdk
+         handles row positioning via its standard transform-based virtualization. */
+      .dg-body {
+        flex: 1 1 0;
+        min-height: 0;
+        width: 100%;
+        overflow-x: hidden;
+      }
+
+      ::ng-deep .dg-body .cdk-virtual-scroll-content-wrapper {
+        contain: layout style;
+      }
+
+      /* Footer with row count + perf warning */
+      .dg-footer {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 4px 10px;
+        background: rgba(0, 0, 0, 0.25);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .dg-rowcount-extra {
+        margin-left: 6px;
+        color: rgba(255, 255, 255, 0.4);
+      }
+
+      .dg-warn {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: #ffb74d;
+      }
+
+      .dg-warn mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
       }
 
       /* Column filters */
@@ -1237,12 +1393,23 @@ export class ResultsTableComponent {
   private readonly strategyFactory = inject(TableProviderStrategyFactory);
   private dialog = inject(MatDialog);
   private importExportService = inject(ImportExportService);
+  private notificationService = inject(NotificationService);
+  private destroyRef = inject(DestroyRef);
 
   /** Current provider strategy for document handling */
   readonly strategy = this.strategyFactory.currentStrategy;
 
   @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
   @ViewChild('tableWrapper') tableWrapper!: ElementRef<HTMLDivElement>;
+  @ViewChild('viewport') viewport?: CdkVirtualScrollViewport;
+
+  // Layout constants
+  readonly ROW_HEIGHT = 32;
+  readonly ROW_NUM_WIDTH = 45;
+  readonly LOAD_MORE_WARN_THRESHOLD = 5000;
+  readonly LOAD_MORE_HARD_LIMIT = 50000;
+
+  trackByDocKey = (_: number, doc: CosmosDocument): string => this.getDocKey(doc);
 
   container = input<ContainerInfo | null>(null);
 
@@ -1309,8 +1476,17 @@ export class ResultsTableComponent {
     return this.tablePrefs.getFilterState(tabId);
   });
 
-  // Global search value
-  globalSearchValue = computed(() => this.filterState().globalSearch);
+  // Local, immediate input value for the global search box. Decoupled from
+  // the filter state so typing doesn't recompute the filtered/sorted document
+  // array on every keystroke — the actual filter state is updated after a
+  // short debounce below.
+  private globalSearchInput = signal('');
+  private columnFilterInputs = signal<Record<string, string>>({});
+  private globalSearchSubject = new Subject<string>();
+  private columnFilterSubject = new Subject<{ column: string; value: string }>();
+
+  // Display value for the global-search <input> element.
+  globalSearchValue = computed(() => this.globalSearchInput());
 
   // Ordered columns for picker (by saved order)
   orderedColumnsForPicker = computed(() => {
@@ -1331,15 +1507,20 @@ export class ResultsTableComponent {
     });
   });
 
-  // Visible columns (respecting visibility and order)
+  // Visible columns (respecting visibility and order).
+  // Intersected with the current query's detected columns so a query change
+  // (e.g. SELECT VALUE COUNT(1) → primitive results) cannot leave stale
+  // columns from a previous query rendering empty cells.
   visibleColumns = computed(() => {
+    const queryPaths = this.queryColumnPaths();
+    if (queryPaths.size === 0) return [];
+
     const prefs = this.columnPrefs();
     if (prefs.length === 0) {
-      // Fall back to query store columns
       return this.queryStore.columns().map(c => c.path);
     }
     return prefs
-      .filter(p => p.visible)
+      .filter(p => p.visible && queryPaths.has(p.path))
       .sort((a, b) => {
         // Pinned columns first
         if (a.pinned && !b.pinned) return -1;
@@ -1348,6 +1529,9 @@ export class ResultsTableComponent {
       })
       .map(p => p.path);
   });
+
+  // Cached set of paths from the current query's detected columns.
+  private queryColumnPaths = computed(() => new Set(this.queryStore.columns().map(c => c.path)));
 
   // Processed documents (filtered and sorted)
   processedDocuments = computed(() => {
@@ -1421,6 +1605,56 @@ export class ResultsTableComponent {
         );
       }
     });
+
+    // Drop live-resize widths for paths no longer present in the current
+    // query so the in-memory map can't grow without bound across queries.
+    effect(() => {
+      const queryPaths = this.queryColumnPaths();
+      this.columnWidthsMap.update((widths) => {
+        let changed = false;
+        const next: Record<string, number> = {};
+        for (const key of Object.keys(widths)) {
+          if (queryPaths.has(key)) {
+            next[key] = widths[key];
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : widths;
+      });
+    });
+
+    // Sync local input signals from persisted filter state when the active tab
+    // changes (so switching tabs restores their filter values into the inputs).
+    effect(() => {
+      const fs = this.filterState();
+      untracked(() => {
+        this.globalSearchInput.set(fs.globalSearch ?? '');
+        this.columnFilterInputs.set({ ...(fs.columnFilters ?? {}) });
+      });
+    });
+
+    // Debounced flush: input → filter state. Keeps typing responsive while
+    // ensuring the expensive processedDocuments() computation only runs after
+    // the user stops typing.
+    this.globalSearchSubject
+      .pipe(debounceTime(250), takeUntilDestroyed(this.destroyRef))
+      .subscribe((value) => {
+        const tabId = this.currentTabId();
+        if (!tabId) return;
+        this.tablePrefs.updateFilter(tabId, { globalSearch: value });
+      });
+
+    this.columnFilterSubject
+      .pipe(debounceTime(250), takeUntilDestroyed(this.destroyRef))
+      .subscribe(({ column, value }) => {
+        const tabId = this.currentTabId();
+        if (!tabId) return;
+        const current = this.filterState().columnFilters;
+        this.tablePrefs.updateFilter(tabId, {
+          columnFilters: { ...current, [column]: value },
+        });
+      });
   }
 
   columnWidths = computed(() => {
@@ -1433,6 +1667,215 @@ export class ResultsTableComponent {
     }
     return widths;
   });
+
+  // CSS grid template for the row layout, including the row-number column.
+  gridTemplateColumns = computed(() => {
+    const widths = this.columnWidths();
+    const cols = this.visibleColumns();
+    const parts: string[] = [`${this.ROW_NUM_WIDTH}px`];
+    for (const c of cols) {
+      parts.push(`${widths[c] ?? this.DEFAULT_COLUMN_WIDTH}px`);
+    }
+    return parts.join(' ');
+  });
+
+  // Total grid width — used to size the sticky header so it scrolls
+  // horizontally with the body and never collapses to viewport width.
+  totalGridWidth = computed(() => {
+    const widths = this.columnWidths();
+    const cols = this.visibleColumns();
+    let sum = this.ROW_NUM_WIDTH;
+    for (const c of cols) sum += (widths[c] ?? this.DEFAULT_COLUMN_WIDTH);
+    return sum;
+  });
+
+  // Sticky-left offset (in px) for each pinned column. Calculated from the
+  // accumulated widths of preceding columns so multiple pins stack correctly.
+  pinnedOffsets = computed(() => {
+    const widths = this.columnWidths();
+    const cols = this.visibleColumns();
+    const prefs = this.columnPrefs();
+    const pinnedSet = new Set(prefs.filter(p => p.pinned).map(p => p.path));
+    const result: Record<string, number> = {};
+    let offset = this.ROW_NUM_WIDTH;
+    for (const c of cols) {
+      if (pinnedSet.has(c)) {
+        result[c] = offset;
+      }
+      offset += widths[c] ?? this.DEFAULT_COLUMN_WIDTH;
+    }
+    return result;
+  });
+
+  // O(1) docKey → row-index lookup. Replaces repeated findIndex calls in the
+  // hot paths (selection, focus, paste-target resolution).
+  private docKeyToIndex = computed(() => {
+    const docs = this.processedDocuments();
+    const map = new Map<string, number>();
+    for (let i = 0; i < docs.length; i++) {
+      map.set(this.getDocKey(docs[i]), i);
+    }
+    return map;
+  });
+
+  // Bounding box of the current selection in (row, col) index space. Computed
+  // once per selection change instead of being recomputed per cell render.
+  private selectionBounds = computed(() => {
+    const start = this.selectionStart();
+    const end = this.selectionEnd();
+    if (!start || !end) return null;
+    const rowMap = this.docKeyToIndex();
+    const cols = this.visibleColumns();
+    const startRow = rowMap.get(start.docKey) ?? -1;
+    const endRow = rowMap.get(end.docKey) ?? -1;
+    const startCol = cols.indexOf(start.path);
+    const endCol = cols.indexOf(end.path);
+    if (startRow === -1 || endRow === -1 || startCol === -1 || endCol === -1) {
+      return null;
+    }
+    return {
+      minRow: Math.min(startRow, endRow),
+      maxRow: Math.max(startRow, endRow),
+      minCol: Math.min(startCol, endCol),
+      maxCol: Math.max(startCol, endCol),
+    };
+  });
+
+  focusedRowIndex = computed(() => {
+    const f = this.focusedCell();
+    if (!f) return -1;
+    return this.docKeyToIndex().get(f.docKey) ?? -1;
+  });
+
+  focusedColIndex = computed(() => {
+    const f = this.focusedCell();
+    if (!f) return -1;
+    return this.visibleColumns().indexOf(f.path);
+  });
+
+  // Set of dirty document keys in the current view. Membership check is O(1)
+  // in the cell template, replacing a per-cell call into the diff tracker.
+  // Recomputes when the documents signal changes (which is the only way the
+  // diff tracker's content changes — every mutation goes through patchState).
+  dirtyDocSet = computed<Set<string>>(() => {
+    const docs = this.processedDocuments();
+    const set = new Set<string>();
+    for (const d of docs) {
+      if (this.queryStore.isDocumentDirty(d)) set.add(this.getDocKey(d));
+    }
+    return set;
+  });
+
+  // Set of dirty (docKey, path) pairs in the visible viewport. Only checks
+  // dirty documents and visible columns to keep this cheap.
+  dirtyCellSet = computed<Set<string>>(() => {
+    const dirtyDocs = this.dirtyDocSet();
+    if (dirtyDocs.size === 0) return new Set();
+    const docs = this.processedDocuments();
+    const cols = this.visibleColumns();
+    const set = new Set<string>();
+    for (const doc of docs) {
+      const key = this.getDocKey(doc);
+      if (!dirtyDocs.has(key)) continue;
+      for (const col of cols) {
+        if (this.queryStore.isFieldDirty(doc, col)) set.add(`${key}:${col}`);
+      }
+    }
+    return set;
+  });
+
+  pendingDeleteSet = computed<Set<string>>(() => {
+    const docs = this.processedDocuments();
+    // Read pendingDeletes() so the computed re-runs when marks change.
+    this.queryStore.pendingDeletes();
+    const set = new Set<string>();
+    for (const d of docs) {
+      if (this.queryStore.isMarkedForDeletion(d)) set.add(this.getDocKey(d));
+    }
+    return set;
+  });
+
+  showLoadMoreWarning = computed(
+    () => this.queryStore.documents().length > this.LOAD_MORE_WARN_THRESHOLD
+  );
+
+  atLoadMoreLimit = computed(
+    () => this.queryStore.documents().length >= this.LOAD_MORE_HARD_LIMIT
+  );
+
+  // Whether the entire visible result set is currently selected (every row,
+  // every visible column). Used to highlight the # corner cell.
+  isAllSelected = computed(() => {
+    const b = this.selectionBounds();
+    if (!b) return false;
+    const docs = this.processedDocuments();
+    const cols = this.visibleColumns();
+    if (docs.length === 0 || cols.length === 0) return false;
+    return (
+      b.minRow === 0 &&
+      b.maxRow === docs.length - 1 &&
+      b.minCol === 0 &&
+      b.maxCol === cols.length - 1
+    );
+  });
+
+  /**
+   * Select every row and every visible column. Bound to the click on the
+   * `#` corner cell, mirroring the spreadsheet "select all" affordance.
+   */
+  selectAll(): void {
+    const docs = this.processedDocuments();
+    const cols = this.visibleColumns();
+    if (docs.length === 0 || cols.length === 0) return;
+
+    const firstKey = this.getDocKey(docs[0]);
+    const lastKey = this.getDocKey(docs[docs.length - 1]);
+    const firstCol = cols[0];
+    const lastCol = cols[cols.length - 1];
+
+    this.selectionStart.set({ docKey: firstKey, path: firstCol });
+    this.selectionEnd.set({ docKey: lastKey, path: lastCol });
+    this.focusedCell.set({ docKey: firstKey, path: firstCol });
+    this.refocusTable();
+  }
+
+  isCellInBox(rowIdx: number, colIdx: number): boolean {
+    const b = this.selectionBounds();
+    if (!b) return false;
+    return rowIdx >= b.minRow && rowIdx <= b.maxRow && colIdx >= b.minCol && colIdx <= b.maxCol;
+  }
+
+  isFocusedRow(rowIdx: number): boolean {
+    return this.focusedRowIndex() === rowIdx;
+  }
+
+  isRowInSelection(rowIdx: number): boolean {
+    const b = this.selectionBounds();
+    if (!b) return false;
+    const cols = this.visibleColumns();
+    return (
+      b.minCol === 0 &&
+      b.maxCol === cols.length - 1 &&
+      rowIdx >= b.minRow &&
+      rowIdx <= b.maxRow
+    );
+  }
+
+  isEditingCell(doc: CosmosDocument, column: string): boolean {
+    const e = this.editingCell;
+    if (!e) return false;
+    return e.docKey === this.getDocKey(doc) && e.path === column;
+  }
+
+  onBodyScroll(): void {
+    this.closeContextMenu();
+  }
+
+  // Column filter input — passes through to the existing handler.
+  // Phase 3 will replace this with a debounced version.
+  onColumnFilterChangeDebounced(column: string, value: string): void {
+    this.onColumnFilterChange(column, value);
+  }
 
   displayedColumns = computed(() => {
     return this.queryStore.columns().map((c) => c.path);
@@ -1576,22 +2019,19 @@ export class ResultsTableComponent {
   }
 
   onGlobalSearchChange(value: string): void {
-    const tabId = this.currentTabId();
-    if (!tabId) return;
-    this.tablePrefs.updateFilter(tabId, { globalSearch: value });
+    // Update the visible input value immediately, then debounce the actual
+    // filter-state update so processedDocuments doesn't recompute per key.
+    this.globalSearchInput.set(value);
+    this.globalSearchSubject.next(value);
   }
 
   getColumnFilter(column: string): string {
-    return this.filterState().columnFilters[column] ?? '';
+    return this.columnFilterInputs()[column] ?? '';
   }
 
   onColumnFilterChange(column: string, value: string): void {
-    const tabId = this.currentTabId();
-    if (!tabId) return;
-    const current = this.filterState().columnFilters;
-    this.tablePrefs.updateFilter(tabId, {
-      columnFilters: { ...current, [column]: value },
-    });
+    this.columnFilterInputs.update((m) => ({ ...m, [column]: value }));
+    this.columnFilterSubject.next({ column, value });
   }
 
   // Preset methods
@@ -2189,31 +2629,29 @@ export class ResultsTableComponent {
   }
 
   private scrollToFocusedCell() {
-    setTimeout(() => {
-      const focusedEl = document.querySelector('.cell-focused') as HTMLElement;
-      const tableWrapper = document.querySelector('.table-wrapper') as HTMLElement;
+    const idx = this.focusedRowIndex();
+    if (idx < 0) return;
 
-      if (!focusedEl || !tableWrapper) return;
-
-      const cellRect = focusedEl.getBoundingClientRect();
-      const wrapperRect = tableWrapper.getBoundingClientRect();
-
-      // Check horizontal scroll
-      if (cellRect.right > wrapperRect.right) {
-        // Cell is off to the right - scroll right
-        tableWrapper.scrollLeft += (cellRect.right - wrapperRect.right) + 20;
-      } else if (cellRect.left < wrapperRect.left) {
-        // Cell is off to the left - scroll left
-        tableWrapper.scrollLeft -= (wrapperRect.left - cellRect.left) + 20;
+    const viewport = this.viewport;
+    if (viewport) {
+      const range = viewport.getRenderedRange();
+      // Bring the focused row into the visible window if it's outside.
+      if (idx < range.start + 1 || idx >= range.end - 1) {
+        viewport.scrollToIndex(Math.max(0, idx - 2), 'auto');
       }
-
-      // Check vertical scroll
-      if (cellRect.bottom > wrapperRect.bottom) {
-        // Cell is below - scroll down
-        tableWrapper.scrollTop += (cellRect.bottom - wrapperRect.bottom) + 20;
-      } else if (cellRect.top < wrapperRect.top) {
-        // Cell is above - scroll up
-        tableWrapper.scrollTop -= (wrapperRect.top - cellRect.top) + 20;
+    }
+    // Horizontal scroll fallback for the focused cell (DOM may not yet be
+    // present after a vertical scroll, so defer one frame).
+    requestAnimationFrame(() => {
+      const focusedEl = this.tableWrapper?.nativeElement?.querySelector('.cell-focused') as HTMLElement | null;
+      const scroller = viewport?.elementRef.nativeElement as HTMLElement | undefined;
+      if (!focusedEl || !scroller) return;
+      const cellRect = focusedEl.getBoundingClientRect();
+      const wrapperRect = scroller.getBoundingClientRect();
+      if (cellRect.right > wrapperRect.right) {
+        scroller.scrollLeft += (cellRect.right - wrapperRect.right) + 20;
+      } else if (cellRect.left < wrapperRect.left) {
+        scroller.scrollLeft -= (wrapperRect.left - cellRect.left) + 20;
       }
     });
   }
@@ -2595,11 +3033,14 @@ export class ResultsTableComponent {
       panelClass: 'field-editor-dialog',
     });
 
-    dialogRef.afterClosed().subscribe((updatedValue) => {
-      if (updatedValue !== undefined) {
-        this.queryStore.updateDocumentField(doc, path, updatedValue);
-      }
-    });
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((updatedValue) => {
+        if (updatedValue !== undefined) {
+          this.queryStore.updateDocumentField(doc, path, updatedValue);
+        }
+      });
   }
 
   finishEditing(doc: CosmosDocument, path: string) {
@@ -2634,8 +3075,7 @@ export class ResultsTableComponent {
 
   private refocusTable() {
     setTimeout(() => {
-      const wrapper = document.querySelector('.table-wrapper') as HTMLElement;
-      wrapper?.focus();
+      this.tableWrapper?.nativeElement?.focus();
     }, 10);
   }
 
@@ -2692,9 +3132,15 @@ export class ResultsTableComponent {
 
   onLoadMore() {
     const cont = this.container();
-    if (cont) {
-      this.queryStore.loadMoreResults(cont);
+    if (!cont) return;
+    const loaded = this.queryStore.documents().length;
+    if (loaded >= this.LOAD_MORE_HARD_LIMIT) {
+      this.notificationService.warn(
+        `Reached the ${this.LOAD_MORE_HARD_LIMIT.toLocaleString()}-row safety limit. Refine the query or apply a filter to load more.`
+      );
+      return;
     }
+    this.queryStore.loadMoreResults(cont);
   }
 
   onViewJson(doc: CosmosDocument) {
@@ -2703,16 +3149,19 @@ export class ResultsTableComponent {
       width: '700px',
     });
 
-    dialogRef.afterClosed().subscribe((updatedDoc) => {
-      if (updatedDoc && this.getDocId(updatedDoc) === this.getDocId(doc)) {
-        // Apply changes from JSON editor (skip system fields)
-        Object.keys(updatedDoc).forEach((key) => {
-          if (!this.isSystemField(key)) {
-            this.queryStore.updateDocumentField(doc, key, updatedDoc[key]);
-          }
-        });
-      }
-    });
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((updatedDoc) => {
+        if (updatedDoc && this.getDocId(updatedDoc) === this.getDocId(doc)) {
+          // Apply changes from JSON editor (skip system fields)
+          Object.keys(updatedDoc).forEach((key) => {
+            if (!this.isSystemField(key)) {
+              this.queryStore.updateDocumentField(doc, key, updatedDoc[key]);
+            }
+          });
+        }
+      });
   }
 
   onDuplicateDocument(doc: CosmosDocument) {
@@ -2730,11 +3179,14 @@ export class ResultsTableComponent {
       width: '700px',
     });
 
-    dialogRef.afterClosed().subscribe((newDoc) => {
-      if (newDoc) {
-        this.queryStore.createDocument(cont, newDoc);
-      }
-    });
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((newDoc) => {
+        if (newDoc) {
+          this.queryStore.createDocument(cont, newDoc);
+        }
+      });
   }
 
   onCreateDocument() {
@@ -2746,11 +3198,14 @@ export class ResultsTableComponent {
       width: '700px',
     });
 
-    dialogRef.afterClosed().subscribe((newDoc) => {
-      if (newDoc) {
-        this.queryStore.createDocument(cont, newDoc);
-      }
-    });
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((newDoc) => {
+        if (newDoc) {
+          this.queryStore.createDocument(cont, newDoc);
+        }
+      });
   }
 
   onDeleteDocument(doc: CosmosDocument) {
@@ -2764,14 +3219,17 @@ export class ResultsTableComponent {
       },
     });
 
-    dialogRef.afterClosed().subscribe((confirmed) => {
-      if (confirmed) {
-        const cont = this.container();
-        if (cont) {
-          this.queryStore.deleteDocument(cont, doc);
+    dialogRef
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((confirmed) => {
+        if (confirmed) {
+          const cont = this.container();
+          if (cont) {
+            this.queryStore.deleteDocument(cont, doc);
+          }
         }
-      }
-    });
+      });
   }
 
   onExportJson() {
@@ -2818,17 +3276,30 @@ export class ResultsTableComponent {
         },
       });
 
-      dialogRef.afterClosed().subscribe(async (confirmed) => {
-        if (confirmed) {
-          for (const doc of documents) {
-            try {
-              await this.queryStore.createDocument(cont, doc);
-            } catch {
-              // Individual errors handled by store
+      dialogRef
+        .afterClosed()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(async (confirmed) => {
+          if (confirmed) {
+            let successCount = 0;
+            let errorCount = 0;
+            for (const doc of documents) {
+              try {
+                await this.queryStore.upsertDocument(cont, doc);
+                successCount++;
+              } catch {
+                errorCount++;
+              }
+            }
+            if (errorCount === 0) {
+              this.notificationService.success(`Imported ${successCount} document(s)`);
+            } else {
+              this.notificationService.warn(
+                `Imported ${successCount}, failed ${errorCount} document(s)`
+              );
             }
           }
-        }
-      });
+        });
     } catch {
       // Error handled by service
     }

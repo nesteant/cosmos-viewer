@@ -88,17 +88,36 @@ export class TablePreferencesService {
         ...savedCol,
       }));
 
-    // Add new columns that aren't in saved
+    // Add new columns that aren't in saved, inserting before system fields
     const savedPaths = new Set(saved.map(c => c.path));
-    const maxOrder = Math.max(...merged.map(c => c.order), -1);
-    base.forEach((baseCol, idx) => {
-      if (!savedPaths.has(baseCol.path)) {
-        merged.push({
-          ...baseCol,
-          order: maxOrder + 1 + idx,
+    const newColumns = base.filter(c => !savedPaths.has(c.path));
+
+    if (newColumns.length > 0) {
+      // Find the first system field order to insert user columns before it
+      const firstSystemOrder = merged
+        .filter(c => c.path.startsWith('_') && c.path !== '_id')
+        .reduce((min, c) => Math.min(min, c.order), Infinity);
+
+      let insertOrder = firstSystemOrder === Infinity
+        ? Math.max(...merged.map(c => c.order), -1) + 1
+        : firstSystemOrder;
+
+      // Shift system fields to make room
+      if (firstSystemOrder !== Infinity) {
+        merged.forEach(c => {
+          if (c.order >= firstSystemOrder) {
+            c.order += newColumns.length;
+          }
         });
       }
-    });
+
+      newColumns.forEach((baseCol, idx) => {
+        merged.push({
+          ...baseCol,
+          order: insertOrder + idx,
+        });
+      });
+    }
 
     return merged.sort((a, b) => a.order - b.order);
   }
@@ -225,8 +244,16 @@ export class TablePreferencesService {
   ): ColumnLayout[] {
     const effectiveColumns = this.getEffectiveColumns(tabId, containerKey, detectedColumnPaths);
 
-    // Only save if tab doesn't have columns yet
-    if (!this._preferences().tabs[tabId]?.columns?.length) {
+    // Only update if column set actually changed (avoids infinite signal loops)
+    const currentColumns = this._preferences().tabs[tabId]?.columns ?? [];
+    const currentPaths = new Set(currentColumns.map(c => c.path));
+    const effectivePaths = new Set(effectiveColumns.map(c => c.path));
+    const columnsChanged =
+      currentColumns.length === 0 ||
+      effectivePaths.size !== currentPaths.size ||
+      [...effectivePaths].some(p => !currentPaths.has(p));
+
+    if (columnsChanged) {
       this.updateTabColumns(tabId, effectiveColumns);
     }
 

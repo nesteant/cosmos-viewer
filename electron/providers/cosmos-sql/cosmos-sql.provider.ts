@@ -260,6 +260,25 @@ export class CosmosSqlProvider implements DatabaseProvider {
     }
   }
 
+  async upsertDocument(params: DocumentCreateParams): Promise<DocumentResult> {
+    try {
+      const client = this.getClient(params.connectionId);
+      const container = client
+        .database(params.databaseId)
+        .container(params.collectionId);
+
+      const { resource, requestCharge } = await container.items.upsert(params.document as Record<string, unknown>);
+
+      return {
+        document: resource,
+        metadata: { requestCharge },
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to upsert document';
+      throw new DocumentOperationError(message, this.type, 'create', undefined, 'CREATE_FAILED', error instanceof Error ? error : undefined);
+    }
+  }
+
   async updateDocument(params: DocumentUpdateParams): Promise<DocumentResult> {
     try {
       const client = this.getClient(params.connectionId);

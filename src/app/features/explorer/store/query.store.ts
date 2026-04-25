@@ -16,6 +16,23 @@ import { detectColumns } from '@core/utils';
 import { DiffTracker, DocumentChange, createDocumentKey, extractPartitionKeyValue } from '@core/utils/diff-tracker';
 
 /**
+ * Normalize raw query results into objects.
+ *
+ * Cosmos `SELECT VALUE …` queries (and Mongo aggregations like `{ $count: … }`)
+ * return primitive scalars. Wrap them in `{ value: <primitive> }` so the rest
+ * of the table pipeline (column detection, cell value lookup) treats them
+ * uniformly. Object documents pass through unchanged.
+ */
+function normalizeQueryDocuments(docs: unknown[]): CosmosDocument[] {
+  return docs.map((d) => {
+    if (d !== null && typeof d === 'object' && !Array.isArray(d)) {
+      return d as CosmosDocument;
+    }
+    return { value: d } as unknown as CosmosDocument;
+  });
+}
+
+/**
  * Get document ID (supports both 'id' for CosmosSQL and '_id' for MongoDB with EJSON)
  */
 function getDocId(doc: CosmosDocument): string {
@@ -376,12 +393,13 @@ export const QueryStore = signalStore(
           });
 
           const executionTime = Math.round(performance.now() - startTime);
-          const columns = detectColumns(result.documents, partitionKeyPath);
+          const documents = normalizeQueryDocuments(result.documents);
+          const columns = detectColumns(documents, partitionKeyPath);
 
-          result.documents.forEach((doc) => diffTracker.trackDocument(doc));
+          documents.forEach((doc) => diffTracker.trackDocument(doc));
 
           updateTabState(tabId, {
-            documents: result.documents,
+            documents,
             columns,
             continuationToken: result.continuationToken ?? null,
             hasMoreResults: result.hasMoreResults,
@@ -423,9 +441,10 @@ export const QueryStore = signalStore(
             pageSize: 100,
           });
 
-          result.documents.forEach((doc) => diffTracker.trackDocument(doc));
+          const newDocuments = normalizeQueryDocuments(result.documents);
+          newDocuments.forEach((doc) => diffTracker.trackDocument(doc));
 
-          const allDocuments = [...(tabState.documents ?? []), ...result.documents];
+          const allDocuments = [...(tabState.documents ?? []), ...newDocuments];
           const columns = detectColumns(allDocuments, container.partitionKeyPath);
 
           updateTabState(tabId, {
@@ -460,7 +479,7 @@ export const QueryStore = signalStore(
           pageSize: 10, // Limit preview to 10 docs
         });
 
-        return { documents: result.documents };
+        return { documents: normalizeQueryDocuments(result.documents) };
       },
 
       updateDocumentField(doc: CosmosDocument, path: string, value: any) {
@@ -759,6 +778,43 @@ export const QueryStore = signalStore(
             error instanceof Error
               ? error.message
               : 'Failed to delete document';
+          notificationService.error(message);
+          throw error;
+        }
+      },
+
+      async upsertDocument(container: ContainerInfo, document: CosmosDocument) {
+        const tabId = store.activeTabId();
+        if (!tabId) return;
+
+        const connectionId = getActiveConnectionId();
+        if (!connectionId) return;
+
+        const diffTracker = getDiffTracker(tabId);
+        const tabState = store.tabStates()[tabId];
+
+        try {
+          const upserted = await electronService.upsertDocument({
+            connectionId,
+            databaseId: container.databaseId,
+            containerId: container.id,
+            document,
+          });
+
+          diffTracker.trackDocument(upserted);
+
+          const docId = getDocId(upserted);
+          const existing = (tabState?.documents ?? []).filter(d => getDocId(d) !== docId);
+          const documents = [upserted, ...existing];
+          const columns = detectColumns(documents, container.partitionKeyPath);
+
+          updateTabState(tabId, { documents, columns });
+          return upserted;
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Failed to upsert document';
           notificationService.error(message);
           throw error;
         }

@@ -13,7 +13,8 @@ import {
   TabState,
   DatabaseConnection,
 } from '@core/models';
-import { ElectronService, NotificationService } from '@core/services';
+import { ElectronService, NotificationService, TablePreferencesService } from '@core/services';
+import { QueryStore } from './query.store';
 import { getDefaultQueryForProvider } from '@core/utils/query-utils';
 
 export interface ExplorerState {
@@ -127,6 +128,8 @@ export const ExplorerStore = signalStore(
   withMethods((store) => {
     const electronService = inject(ElectronService);
     const notificationService = inject(NotificationService);
+    const queryStore = inject(QueryStore);
+    const tablePrefs = inject(TablePreferencesService);
 
     const getActiveConnectionId = (): string | null => {
       return store.activeConnectionId() ?? sessionStorage.getItem('activeConnectionId');
@@ -305,6 +308,10 @@ export const ExplorerStore = signalStore(
           tabs: newTabs,
           activeTabId: newActiveTabId,
         });
+
+        // Release per-tab memory: query results, diff tracker, column prefs.
+        queryStore.removeTab(tabId);
+        tablePrefs.clearTabState(tabId);
       },
 
       activateTab(tabId: string) {

@@ -74,6 +74,12 @@ export interface ElectronAPI {
       containerId: string;
       document: unknown;
     }) => Promise<{ document: unknown; metadata?: Record<string, unknown> }>;
+    upsertDocument: (params: {
+      connectionId: string;
+      databaseId: string;
+      containerId: string;
+      document: unknown;
+    }) => Promise<{ document: unknown; metadata?: Record<string, unknown> }>;
     updateDocument: (params: {
       connectionId: string;
       databaseId: string;
@@ -210,6 +216,7 @@ const electronAPI: ElectronAPI = {
     executeQuery: (params) => ipcRenderer.invoke('db:execute-query', params),
     analyzeQuery: (params) => ipcRenderer.invoke('db:analyze-query', params),
     createDocument: (params) => ipcRenderer.invoke('db:create-document', params),
+    upsertDocument: (params) => ipcRenderer.invoke('db:upsert-document', params),
     updateDocument: (params) => ipcRenderer.invoke('db:update-document', params),
     deleteDocument: (params) => ipcRenderer.invoke('db:delete-document', params),
   },

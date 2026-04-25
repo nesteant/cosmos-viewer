@@ -21,13 +21,19 @@ export function detectColumns(documents: CosmosDocument[], partitionKeyPaths?: s
       types: Set<string>;
       count: number;
       isSystem: boolean;
+      firstSeen: number;
     }
   >();
 
-  // System fields that should appear first
+  // System fields that should appear first within the system group
   const systemFields = ['id', '_rid', '_self', '_etag', '_attachments', '_ts'];
 
-  // Analyze each document - only top-level keys
+  // Analyze each document - only top-level keys.
+  // `firstSeen` records the order in which a key first appears across all
+  // documents; this is what we use to preserve the SELECT-clause order from
+  // Cosmos / Mongo, since both engines emit projection fields in declared
+  // order in their result objects.
+  let order = 0;
   for (const doc of documents) {
     for (const key of Object.keys(doc)) {
       const value = doc[key];
@@ -43,12 +49,19 @@ export function detectColumns(documents: CosmosDocument[], partitionKeyPaths?: s
           types: new Set([valueType]),
           count: 1,
           isSystem: key.startsWith('_'),
+          firstSeen: order++,
         });
       }
     }
   }
 
-  // Convert to ColumnDefinition array
+  // Convert to ColumnDefinition array, preserving the firstSeen order on each
+  // entry so the comparator below can use it.
+  const firstSeenByPath = new Map<string, number>();
+  for (const [key, info] of columnMap.entries()) {
+    firstSeenByPath.set(key, info.firstSeen);
+  }
+
   const columns: ColumnDefinition[] = Array.from(columnMap.entries()).map(
     ([key, info]) => ({
       path: key,
@@ -59,38 +72,36 @@ export function detectColumns(documents: CosmosDocument[], partitionKeyPaths?: s
     })
   );
 
-  // Sort: 'id'/'_id' first, then partition key fields, then user fields alphabetically, then system fields at end
+  // Sort: id/_id first → partition keys → user fields in projection order →
+  // system fields last. We use first-seen order for user fields rather than
+  // alphabetical so a query like `SELECT c.foo, c.bar` keeps its column order.
   columns.sort((a, b) => {
-    // 'id' or '_id' always first
     if (a.path === 'id' || a.path === '_id') return -1;
     if (b.path === 'id' || b.path === '_id') return 1;
 
-    // Partition key fields come next (in order they appear in the path)
     const aIsPk = pkFields.includes(a.path);
     const bIsPk = pkFields.includes(b.path);
     if (aIsPk && !bIsPk) return -1;
     if (!aIsPk && bIsPk) return 1;
     if (aIsPk && bIsPk) {
-      // Maintain partition key order
       return pkFields.indexOf(a.path) - pkFields.indexOf(b.path);
     }
 
-    // System fields (starting with _) go to the end
     const aIsSystem = a.path.startsWith('_');
     const bIsSystem = b.path.startsWith('_');
-
     if (aIsSystem && !bIsSystem) return 1;
     if (!aIsSystem && bIsSystem) return -1;
 
-    // Within system fields, maintain standard order
     if (aIsSystem && bIsSystem) {
       const aIndex = systemFields.indexOf(a.path);
       const bIndex = systemFields.indexOf(b.path);
       if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      // Fall through to first-seen for unknown system fields.
     }
 
-    // Otherwise alphabetical
-    return a.path.localeCompare(b.path);
+    const aOrder = firstSeenByPath.get(a.path) ?? 0;
+    const bOrder = firstSeenByPath.get(b.path) ?? 0;
+    return aOrder - bOrder;
   });
 
   return columns;

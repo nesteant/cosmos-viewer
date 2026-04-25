@@ -212,6 +212,21 @@ export function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('db:upsert-document', async (_, params) => {
+    try {
+      const provider = providerManager.getForConnection(params.connectionId);
+      return await provider.upsertDocument({
+        connectionId: params.connectionId,
+        databaseId: params.databaseId,
+        collectionId: params.containerId,
+        document: params.document,
+      });
+    } catch (error: unknown) {
+      console.error('Failed to upsert document:', error);
+      throw error;
+    }
+  });
+
   ipcMain.handle('db:update-document', async (_, params) => {
     try {
       const provider = providerManager.getForConnection(params.connectionId);

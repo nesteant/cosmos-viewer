@@ -430,6 +430,49 @@ export class CosmosMongoProvider implements DatabaseProvider {
     }
   }
 
+  async upsertDocument(params: DocumentCreateParams): Promise<DocumentResult> {
+    try {
+      const client = await this.getClient(params.connectionId);
+      const db = client.db(params.databaseId);
+      const collection = db.collection(params.collectionId);
+
+      // Deserialize EJSON to native MongoDB types
+      const doc = EJSON.deserialize(params.document as Document) as Document;
+
+      // Build filter using _id
+      const docId = doc._id;
+      let filter: Filter<Document>;
+      if (docId !== undefined && docId !== null) {
+        filter = { _id: docId } as Filter<Document>;
+      } else {
+        // No _id — fall back to insertOne
+        const result = await collection.insertOne(doc);
+        const insertedDoc = await collection.findOne({ _id: result.insertedId });
+        const requestCharge = await this.getRequestCharge(db);
+        return {
+          document: insertedDoc ? serializeDocuments([insertedDoc])[0] : null,
+          metadata: { requestCharge, insertedId: result.insertedId.toString() },
+        };
+      }
+
+      // Remove _id from the update payload to avoid immutable field error
+      const { _id, ...updateDoc } = doc;
+      const result = await collection.replaceOne(filter, updateDoc, { upsert: true });
+
+      // Get the upserted/updated document
+      const upsertedDoc = await collection.findOne(filter);
+      const requestCharge = await this.getRequestCharge(db);
+
+      return {
+        document: upsertedDoc ? serializeDocuments([upsertedDoc])[0] : null,
+        metadata: { requestCharge, upsertedId: result.upsertedId?.toString(), modifiedCount: result.modifiedCount },
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to upsert document';
+      throw new DocumentOperationError(message, this.type, 'create', undefined, 'CREATE_FAILED', error instanceof Error ? error : undefined);
+    }
+  }
+
   async updateDocument(params: DocumentUpdateParams): Promise<DocumentResult> {
     try {
       const client = await this.getClient(params.connectionId);
