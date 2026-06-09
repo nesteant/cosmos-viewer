@@ -656,6 +656,7 @@ export const QueryStore = signalStore(
             containerId: container.id,
             document: modifiedDoc,
             partitionKey,
+            partitionKeyPath: container.partitionKeyPath,
           });
 
           diffTracker.commitChanges(doc, updated);
@@ -762,6 +763,10 @@ export const QueryStore = signalStore(
             containerId: container.id,
             documentId,
             partitionKey,
+            partitionKeyPath: container.partitionKeyPath,
+            // Pass the raw EJSON _id so the provider can match non-string ids
+            // (e.g. a UUID stored as Binary) by their exact BSON value.
+            documentIdRaw: (doc as Record<string, unknown>)['_id'],
           });
 
           diffTracker.untrackDocument(doc);

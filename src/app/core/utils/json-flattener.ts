@@ -162,6 +162,109 @@ export function uuidToBinaryEjson(uuid: string): any {
 }
 
 /**
+ * Returns true when the value is a MongoDB Binary/UUID EJSON object
+ * (subtype 03 or 04), or a { $uuid } shorthand.
+ */
+export function isBinaryUuid(value: any): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if ('$uuid' in value) return true;
+  if ('$binary' in value) {
+    const subType = value.$binary?.subType;
+    return subType === '04' || subType === '03' || subType === 4 || subType === 3;
+  }
+  return false;
+}
+
+/**
+ * Convert a MongoDB Binary/UUID EJSON object to a plain UUID string.
+ * Returns the original JSON string form if it cannot be decoded.
+ */
+export function binaryUuidToString(value: any): string {
+  if (value?.$uuid) return value.$uuid;
+  if (value?.$binary?.base64) {
+    try {
+      const bytes = atob(value.$binary.base64);
+      const hex = Array.from(bytes, (c: string) =>
+        c.charCodeAt(0).toString(16).padStart(2, '0')
+      ).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    } catch {
+      return JSON.stringify(value);
+    }
+  }
+  return JSON.stringify(value);
+}
+
+/** Recursively checks whether a value tree contains any Binary/UUID EJSON. */
+export function containsBinaryUuids(value: any): boolean {
+  if (value === null || value === undefined) return false;
+  if (isBinaryUuid(value)) return true;
+  if (Array.isArray(value)) return value.some(containsBinaryUuids);
+  if (typeof value === 'object') return Object.values(value).some(containsBinaryUuids);
+  return false;
+}
+
+/** Recursively checks whether a value tree contains any plain UUID strings. */
+export function containsPlainUuids(value: any): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return isValidGuid(value);
+  if (Array.isArray(value)) return value.some(containsPlainUuids);
+  if (typeof value === 'object') {
+    // Don't descend into EJSON wrappers
+    if ('$binary' in value || '$oid' in value || '$date' in value || '$uuid' in value) return false;
+    return Object.values(value).some(containsPlainUuids);
+  }
+  return false;
+}
+
+/**
+ * Recursively converts UUIDs in a parsed value tree between plain string form
+ * and MongoDB Binary EJSON form. Pass 'wrap' to turn UUID strings into Binary,
+ * 'unwrap' to turn Binary back into UUID strings.
+ */
+export function convertUuidsDeep(value: any, direction: 'wrap' | 'unwrap'): any {
+  if (value === null || value === undefined) return value;
+
+  if (direction === 'unwrap' && isBinaryUuid(value)) {
+    return binaryUuidToString(value);
+  }
+  if (direction === 'wrap' && typeof value === 'string' && isValidGuid(value)) {
+    return uuidToBinaryEjson(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => convertUuidsDeep(item, direction));
+  }
+
+  if (typeof value === 'object') {
+    // Leave other EJSON wrappers untouched
+    if (direction === 'wrap' && (
+      '$binary' in value || '$oid' in value || '$date' in value ||
+      '$numberLong' in value || '$numberDecimal' in value || '$regex' in value || '$uuid' in value
+    )) {
+      return value;
+    }
+    const result: Record<string, any> = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = convertUuidsDeep(val, direction);
+    }
+    return result;
+  }
+
+  return value;
+}
+
+/**
+ * Auto-detects the conversion direction for a parsed value tree and toggles
+ * UUID representation: Binary → string if it currently holds Binary UUIDs,
+ * otherwise string → Binary.
+ */
+export function toggleUuidRepresentation(value: any): any {
+  const direction = containsBinaryUuids(value) && !containsPlainUuids(value) ? 'unwrap' : 'wrap';
+  return convertUuidsDeep(value, direction);
+}
+
+/**
  * Convert ISO date string to MongoDB Date EJSON format
  */
 export function dateToMongoEjson(dateStr: string): any {

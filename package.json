@@ -1,6 +1,6 @@
 {
   "name": "cosmos-viewer",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Cosmos DB NoSQL Viewer - Desktop application for managing Azure Cosmos DB",
   "author": {
     "name": "Anton Nesterenko",

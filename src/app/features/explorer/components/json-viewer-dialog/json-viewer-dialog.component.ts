@@ -8,12 +8,20 @@ import {
 } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { CosmosDocument } from '@core/models';
+import { containsBinaryUuids, convertUuidsDeep, toggleUuidRepresentation } from '@core/utils/json-flattener';
 
 export interface JsonViewerDialogData {
   document: CosmosDocument;
   title?: string;
   readonly?: boolean;
+  /**
+   * Whether this document uses MongoDB Binary UUIDs. Enables the
+   * "UUID ↔ Binary" toggle and Binary-preserving save. Should be false for
+   * Cosmos NoSQL, where UUIDs are plain strings.
+   */
+  supportsBinaryUuid?: boolean;
 }
 
 @Component({
@@ -24,6 +32,7 @@ export interface JsonViewerDialogData {
     MatDialogModule,
     MatButtonModule,
     MatIconModule,
+    MatTooltipModule,
     MonacoEditorModule,
   ],
   template: `
@@ -38,12 +47,28 @@ export interface JsonViewerDialogData {
         [(ngModel)]="jsonContent"
       ></ngx-monaco-editor>
     </mat-dialog-content>
+    @if (data.supportsBinaryUuid && binaryDetected) {
+      <div class="uuid-hint">
+        <mat-icon>info</mat-icon>
+        Binary UUID(s) detected — use "UUID ↔ Binary" to view them as readable UUID strings.
+      </div>
+    }
     <mat-dialog-actions align="end">
       <button mat-button (click)="onCopy()">
         <mat-icon>content_copy</mat-icon>
         Copy
       </button>
       @if (!data.readonly) {
+        @if (data.supportsBinaryUuid) {
+          <button
+            mat-button
+            (click)="onToggleUuids()"
+            matTooltip="Toggle between MongoDB Binary and readable UUID strings"
+          >
+            <mat-icon>swap_horiz</mat-icon>
+            UUID ↔ Binary
+          </button>
+        }
         <button mat-button (click)="dialogRef.close()">Cancel</button>
         <button
           mat-flat-button
@@ -88,6 +113,22 @@ export interface JsonViewerDialogData {
       mat-dialog-actions button mat-icon {
         margin-right: 4px;
       }
+
+      .uuid-hint {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: rgba(156, 39, 176, 0.15);
+        color: #ce93d8;
+        font-size: 12px;
+      }
+
+      .uuid-hint mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
     `,
   ],
 })
@@ -97,6 +138,7 @@ export class JsonViewerDialogComponent implements OnInit {
 
   jsonContent = '';
   isValidJson = true;
+  binaryDetected = false;
 
   editorOptions = {
     theme: 'vs-dark',
@@ -114,16 +156,42 @@ export class JsonViewerDialogComponent implements OnInit {
   ngOnInit() {
     this.jsonContent = JSON.stringify(this.data.document, null, 2);
     this.editorOptions.readOnly = this.data.readonly ?? false;
+    this.binaryDetected =
+      !!this.data.supportsBinaryUuid && containsBinaryUuids(this.data.document);
   }
 
   onCopy() {
     navigator.clipboard.writeText(this.jsonContent);
   }
 
+  /**
+   * Toggle every UUID in the document between MongoDB Binary EJSON and a
+   * readable UUID string, auto-detecting the current representation.
+   */
+  onToggleUuids() {
+    try {
+      const parsed = JSON.parse(this.jsonContent);
+      const converted = toggleUuidRepresentation(parsed);
+      this.jsonContent = JSON.stringify(converted, null, 2);
+      this.binaryDetected = containsBinaryUuids(converted);
+      this.isValidJson = true;
+    } catch {
+      // Leave content untouched if it is not currently valid JSON
+      this.isValidJson = false;
+    }
+  }
+
   onSave() {
     try {
       const parsed = JSON.parse(this.jsonContent);
-      this.dialogRef.close(parsed);
+      // Preserve BSON shape for MongoDB: any plain UUID strings (e.g. left over
+      // from the "UUID ↔ Binary" readable view) are written back as MongoDB
+      // Binary, matching the single-field editor's convention. Already-Binary
+      // values are left untouched. For Cosmos NoSQL, UUIDs stay plain strings.
+      const result = this.data.supportsBinaryUuid
+        ? convertUuidsDeep(parsed, 'wrap')
+        : parsed;
+      this.dialogRef.close(result);
     } catch {
       this.isValidJson = false;
     }

@@ -133,6 +133,7 @@ export class ElectronService {
     containerId: string;
     document: CosmosDocument;
     partitionKey: unknown;
+    partitionKeyPath?: string | null;
   }): Promise<CosmosDocument> {
     const result = await this.api.db.updateDocument(params);
     return result.document as CosmosDocument;
@@ -144,6 +145,8 @@ export class ElectronService {
     containerId: string;
     documentId: string;
     partitionKey: unknown;
+    partitionKeyPath?: string | null;
+    documentIdRaw?: unknown;
   }): Promise<void> {
     return this.api.db.deleteDocument(params);
   }

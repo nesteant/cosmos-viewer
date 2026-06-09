@@ -238,7 +238,10 @@ export function registerIpcHandlers(): void {
         collectionId: params.containerId,
         documentId,
         document: params.document,
-        options: { partitionKey: params.partitionKey },
+        options: {
+          partitionKey: params.partitionKey,
+          partitionKeyPath: params.partitionKeyPath,
+        },
       });
     } catch (error: unknown) {
       console.error('Failed to update document:', error);
@@ -254,7 +257,11 @@ export function registerIpcHandlers(): void {
         databaseId: params.databaseId,
         collectionId: params.containerId,
         documentId: params.documentId,
-        options: { partitionKey: params.partitionKey },
+        options: {
+          partitionKey: params.partitionKey,
+          partitionKeyPath: params.partitionKeyPath,
+          documentIdRaw: params.documentIdRaw,
+        },
       });
     } catch (error: unknown) {
       console.error('Failed to delete document:', error);

@@ -23,6 +23,61 @@ function serializeDocuments(docs: Document[]): Document[] {
   // Then we parse it back to get plain objects that work with IPC
   return JSON.parse(EJSON.stringify(docs));
 }
+
+/**
+ * Normalize a partition-key path into MongoDB field names (dot-notation).
+ * Accepts the app's "/field" form, composite "/a,/b", and nested
+ * "/parent/child" (→ "parent.child").
+ */
+function shardKeyFields(partitionKeyPath?: string | null): string[] {
+  if (!partitionKeyPath) return [];
+  return partitionKeyPath
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => (p.startsWith('/') ? p.slice(1) : p))
+    .map((p) => p.split('/').filter(Boolean).join('.'))
+    .filter(Boolean);
+}
+
+/** Read a value from a document by dot-notation path. */
+function getByDotPath(source: Document, dotPath: string): unknown {
+  let value: unknown = source;
+  for (const segment of dotPath.split('.')) {
+    if (value === null || value === undefined) return undefined;
+    value = (value as Record<string, unknown>)[segment];
+  }
+  return value;
+}
+
+/** Deserialize a single EJSON-encoded value back to its native BSON type. */
+function deserializeValue(value: unknown): unknown {
+  if (value === null || value === undefined || typeof value !== 'object') return value;
+  return (EJSON.deserialize({ v: value as Document }) as Document)['v'];
+}
+
+/**
+ * Add shard-key (partition-key) equality conditions to a point-operation filter.
+ *
+ * Cosmos DB Mongo API routes point writes by shard key, and the shard key is
+ * immutable. Including it in the filter targets the correct partition and keeps
+ * replace/delete operations consistent. `_id` is skipped because it already
+ * constrains the filter. Values are read from the native (deserialized) source
+ * document so their BSON type is preserved.
+ */
+function addShardKeyToFilter(
+  filter: Record<string, unknown>,
+  source: Document,
+  partitionKeyPath?: string | null
+): void {
+  for (const field of shardKeyFields(partitionKeyPath)) {
+    if (field === '_id') continue;
+    const value = getByDotPath(source, field);
+    if (value !== undefined && value !== null) {
+      filter[field] = value;
+    }
+  }
+}
 import { DatabaseProvider, ProviderCapabilities } from '../base/provider.interface';
 import {
   ProviderType,
@@ -479,30 +534,42 @@ export class CosmosMongoProvider implements DatabaseProvider {
       const db = client.db(params.databaseId);
       const collection = db.collection(params.collectionId);
 
-      // Build filter for document lookup
-      let filter: Filter<Document>;
-      try {
-        if (ObjectId.isValid(params.documentId)) {
-          filter = { _id: new ObjectId(params.documentId) };
-        } else {
-          filter = { _id: params.documentId as unknown } as Filter<Document>;
-        }
-      } catch {
-        filter = { _id: params.documentId as unknown } as Filter<Document>;
-      }
-
-      // Deserialize EJSON to native MongoDB types
-      // This converts { $date: "..." } back to Date, { $oid: "..." } to ObjectId, etc.
+      // Deserialize EJSON to native MongoDB types FIRST, so the _id keeps its
+      // exact BSON shape (ObjectId, Binary/UUID, Long, Decimal128, string, ...).
+      // This converts { $date: "..." } back to Date, { $oid: "..." } to ObjectId,
+      // { $binary: ... } to Binary/UUID, { $numberLong: ... } to Long, etc.
       const doc = EJSON.deserialize(params.document as Document) as Document;
 
-      // Remove _id from the document to avoid immutable field error
+      // Build the lookup filter from the document's NATIVE _id. Rebuilding the
+      // filter from a stringified id breaks for any non-ObjectId _id type: a UUID
+      // stored as Binary, a Long, or even a 24-hex string would never match.
+      const filter: Record<string, unknown> = {};
+      if (doc._id !== undefined && doc._id !== null) {
+        filter._id = doc._id;
+      } else if (ObjectId.isValid(params.documentId)) {
+        filter._id = new ObjectId(params.documentId);
+      } else {
+        filter._id = params.documentId;
+      }
+
+      // Respect the shard/partition key: include it in the filter so the replace
+      // targets the correct partition (Cosmos Mongo requires this for point
+      // writes, and the shard key is immutable).
+      const partitionKeyPath = (params.options?.['partitionKeyPath'] as string | undefined) ?? null;
+      addShardKeyToFilter(filter, doc, partitionKeyPath);
+
+      // Remove _id from the update payload to avoid the immutable field error
       const { _id, ...updateDoc } = doc;
 
-      const result = await collection.replaceOne(filter, updateDoc);
+      const result = await collection.replaceOne(filter as Filter<Document>, updateDoc);
 
       if (result.matchedCount === 0) {
+        const hasCustomShardKey = shardKeyFields(partitionKeyPath).some((f) => f !== '_id');
+        const hint = hasCustomShardKey
+          ? ' — the shard/partition key is immutable and must match the stored document'
+          : '';
         throw new DocumentOperationError(
-          `Document not found: ${params.documentId}`,
+          `Document not found: ${params.documentId}${hint}`,
           this.type,
           'update',
           params.documentId,
@@ -511,7 +578,7 @@ export class CosmosMongoProvider implements DatabaseProvider {
       }
 
       // Get the updated document
-      const updatedDoc = await collection.findOne(filter);
+      const updatedDoc = await collection.findOne(filter as Filter<Document>);
 
       // Get RU charge
       const requestCharge = await this.getRequestCharge(db);
@@ -536,19 +603,37 @@ export class CosmosMongoProvider implements DatabaseProvider {
       const db = client.db(params.databaseId);
       const collection = db.collection(params.collectionId);
 
-      // Build filter for document lookup
-      let filter: Filter<Document>;
-      try {
-        if (ObjectId.isValid(params.documentId)) {
-          filter = { _id: new ObjectId(params.documentId) };
-        } else {
-          filter = { _id: params.documentId as unknown } as Filter<Document>;
-        }
-      } catch {
-        filter = { _id: params.documentId as unknown } as Filter<Document>;
+      // Build the lookup filter from the raw EJSON _id when available so the
+      // _id keeps its exact BSON shape (a UUID stored as Binary would never
+      // match a plain string). Fall back to the stringified id otherwise.
+      const filter: Record<string, unknown> = {};
+      const rawId = params.options?.['documentIdRaw'];
+      if (rawId !== undefined && rawId !== null) {
+        filter._id = deserializeValue(rawId);
+      } else if (ObjectId.isValid(params.documentId)) {
+        filter._id = new ObjectId(params.documentId);
+      } else {
+        filter._id = params.documentId;
       }
 
-      const result = await collection.deleteOne(filter);
+      // Respect the shard/partition key: include it in the filter so the delete
+      // targets the correct partition. The partition-key value(s) arrive in
+      // EJSON form aligned to the (possibly composite) partition-key path.
+      const partitionKeyPath = (params.options?.['partitionKeyPath'] as string | undefined) ?? null;
+      const pkFields = shardKeyFields(partitionKeyPath);
+      if (pkFields.length > 0) {
+        const pkRaw = params.options?.['partitionKey'];
+        const pkValues = pkFields.length === 1 ? [pkRaw] : (Array.isArray(pkRaw) ? pkRaw : []);
+        pkFields.forEach((field, i) => {
+          if (field === '_id') return;
+          const value = deserializeValue(pkValues[i]);
+          if (value !== undefined && value !== null) {
+            filter[field] = value;
+          }
+        });
+      }
+
+      const result = await collection.deleteOne(filter as Filter<Document>);
 
       if (result.deletedCount === 0) {
         throw new DocumentOperationError(

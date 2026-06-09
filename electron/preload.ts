@@ -86,6 +86,7 @@ export interface ElectronAPI {
       containerId: string;
       document: unknown;
       partitionKey?: unknown;
+      partitionKeyPath?: string | null;
     }) => Promise<{ document: unknown; metadata?: Record<string, unknown> }>;
     deleteDocument: (params: {
       connectionId: string;
@@ -93,6 +94,8 @@ export interface ElectronAPI {
       containerId: string;
       documentId: string;
       partitionKey?: unknown;
+      partitionKeyPath?: string | null;
+      documentIdRaw?: unknown;
     }) => Promise<void>;
   };
   storage: {

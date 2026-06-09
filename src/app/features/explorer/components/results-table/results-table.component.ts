@@ -3145,7 +3145,10 @@ export class ResultsTableComponent {
 
   onViewJson(doc: CosmosDocument) {
     const dialogRef = this.dialog.open(JsonViewerDialogComponent, {
-      data: { document: doc },
+      data: {
+        document: doc,
+        supportsBinaryUuid: this.strategy().providerType === 'cosmos-mongo',
+      },
       width: '700px',
     });
 
@@ -3175,6 +3178,7 @@ export class ResultsTableComponent {
       data: {
         document: copy,
         title: 'Duplicate Document',
+        supportsBinaryUuid: this.strategy().providerType === 'cosmos-mongo',
       },
       width: '700px',
     });
