@@ -124,7 +124,7 @@ import { ConnectionsStore } from '../../store';
             matInput
             [type]="showKey ? 'text' : 'password'"
             formControlName="key"
-            placeholder="Your primary or secondary key"
+            placeholder="Leave empty if the account requires Entra ID sign-in"
             autocomplete="off"
           />
           <button
@@ -676,7 +676,8 @@ export class ConnectionFormComponent implements OnInit {
 
     if (providerType === 'cosmos-sql') {
       endpointControl?.setValidators([Validators.required, Validators.pattern(/^https?:\/\/.+/)]);
-      keyControl?.setValidators([Validators.required]);
+      // Optional: accounts with key auth disabled are reached with an Entra ID token
+      keyControl?.clearValidators();
     } else if (providerType === 'cosmos-mongo') {
       endpointControl?.setValidators([Validators.required, Validators.pattern(/^mongodb(\+srv)?:\/\/.+/)]);
       keyControl?.clearValidators();
@@ -722,16 +723,11 @@ export class ConnectionFormComponent implements OnInit {
   }
 
   isFormValidForTest(): boolean {
-    const providerType = this.form.get('providerType')?.value;
     const name = this.form.get('name')?.value;
     const endpoint = this.form.get('endpoint')?.value;
-    const key = this.form.get('key')?.value;
 
-    if (!name || !endpoint) return false;
-
-    if (providerType === 'cosmos-sql' && !key) return false;
-
-    return true;
+    // The key is optional - the provider signs in with Entra ID when the account rejects keys
+    return !!name && !!endpoint;
   }
 
   getConnectionStringPlaceholder(): string {
@@ -823,30 +819,30 @@ export class ConnectionFormComponent implements OnInit {
     }
 
     // Format: AccountEndpoint=https://account.documents.azure.com:443/;AccountKey=key;
+    // The key is optional - accounts with key auth disabled are reached with an Entra ID token
     const endpointMatch = input.match(/AccountEndpoint=([^;]+)/i);
     const keyMatch = input.match(/AccountKey=([^;]+)/i);
+    const endpoint = endpointMatch?.[1] ?? (/^https?:\/\/\S+$/i.test(input) ? input : null);
 
-    if (endpointMatch && keyMatch) {
-      const endpoint = endpointMatch[1];
-      const key = keyMatch[1];
-
-      // Extract account name from endpoint
-      const accountMatch = endpoint.match(/https?:\/\/([^.]+)/);
-      const account = accountMatch ? accountMatch[1] : 'unknown';
-      const host = endpoint.replace(/^https?:\/\//, '').replace(/:\d+\/?$/, '');
-
-      this.parsedConnectionInfo.set({ account, host });
-
-      // Fill the form fields
-      this.form.patchValue({ endpoint, key });
-
-      // Auto-fill name if empty
-      const currentName = this.form.get('name')?.value;
-      if (!currentName) {
-        this.form.patchValue({ name: account });
-      }
-    } else {
+    if (!endpoint) {
       this.parseError.set('Could not parse Cosmos SQL connection string. Expected format: AccountEndpoint=https://...;AccountKey=...;');
+      return;
+    }
+
+    // Extract account name from endpoint
+    const accountMatch = endpoint.match(/https?:\/\/([^.]+)/);
+    const account = accountMatch ? accountMatch[1] : 'unknown';
+    const host = endpoint.replace(/^https?:\/\//, '').replace(/:\d+\/?$/, '');
+
+    this.parsedConnectionInfo.set({ account, host });
+
+    // Fill the form fields
+    this.form.patchValue({ endpoint, key: keyMatch?.[1] ?? '' });
+
+    // Auto-fill name if empty
+    const currentName = this.form.get('name')?.value;
+    if (!currentName) {
+      this.form.patchValue({ name: account });
     }
   }
 

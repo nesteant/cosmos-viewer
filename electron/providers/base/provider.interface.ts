@@ -110,6 +110,12 @@ export interface DatabaseProvider {
   analyzeQuery?(params: QueryAnalysisParams): Promise<QueryAnalysisResult>;
 
   /**
+   * Drop cached clients so they are rebuilt from current stored settings (optional).
+   * Called when connections are saved - endpoint or credentials may have changed.
+   */
+  invalidateClients?(): void;
+
+  /**
    * Get the query language configuration for Monaco editor
    */
   getQueryLanguage(): QueryLanguageConfig;

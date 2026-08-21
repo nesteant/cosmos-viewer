@@ -54,6 +54,16 @@ class ProviderManagerClass {
   }
 
   /**
+   * Drop every provider's cached clients - call after connections are saved,
+   * since endpoints or credentials may have changed
+   */
+  invalidateClients(): void {
+    for (const provider of this.providers.values()) {
+      provider.invalidateClients?.();
+    }
+  }
+
+  /**
    * Clear cached provider type for a connection
    */
   clearConnectionCache(connectionId: string): void {

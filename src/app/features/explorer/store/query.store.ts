@@ -104,6 +104,12 @@ function binaryToUuid(base64: string): string {
 function parseCosmosError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
 
+  // Auth failures already carry actionable guidance from the main process
+  const guidance = message.split('\n\n').slice(1).join('\n\n');
+  if (/az login|az cosmosdb|AZURE_TENANT_ID|Entra ID/.test(guidance)) {
+    return guidance;
+  }
+
   // Check for NotFound errors
   if (message.includes('"code":"NotFound"') || message.includes('Owner resource does not exist')) {
     return 'Container or database no longer exists. Please refresh the database tree and try again.';

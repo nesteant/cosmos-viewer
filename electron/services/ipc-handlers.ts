@@ -98,6 +98,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('storage:save-connections', async (_, connections) => {
     try {
       saveConnections(connections);
+      // Credentials may have changed - rebuild clients on next use
+      providerManager.invalidateClients();
     } catch (error: unknown) {
       console.error('Failed to save connections:', error);
       throw error;

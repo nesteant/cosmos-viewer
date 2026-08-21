@@ -240,6 +240,14 @@ export class CosmosMongoProvider implements DatabaseProvider {
     return this.clients.get(connectionId)!;
   }
 
+  /** Drop cached clients so edited connection strings take effect without a restart */
+  invalidateClients(): void {
+    for (const client of this.clients.values()) {
+      void client.close().catch(() => undefined);
+    }
+    this.clients.clear();
+  }
+
   /**
    * Get RU consumption from the last operation
    */
